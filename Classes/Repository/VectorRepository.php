@@ -1,0 +1,117 @@
+<?php
+
+declare(strict_types=1);
+
+namespace BoehmMatthias\SmartSearch\Repository;
+
+use TYPO3\CMS\Core\Database\Connection;
+use TYPO3\CMS\Core\Database\ConnectionPool;
+
+class VectorRepository
+{
+    private const TABLE = 'tx_smartsearch_vector';
+
+    public function __construct(
+        private readonly ConnectionPool $connectionPool,
+    ) {}
+
+    /**
+     * @param float[] $vector
+     */
+    public function upsert(string $collection, string $identifier, array $vector, string $contentHash): void
+    {
+        $existing = $this->findRow($collection, $identifier);
+        $now = time();
+
+        if ($existing !== null) {
+            $this->connectionPool
+                ->getConnectionForTable(self::TABLE)
+                ->update(
+                    self::TABLE,
+                    [
+                        'vector' => json_encode($vector, JSON_THROW_ON_ERROR),
+                        'content_hash' => $contentHash,
+                        'tstamp' => $now,
+                    ],
+                    ['collection' => $collection, 'identifier' => $identifier],
+                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
+                );
+        } else {
+            $this->connectionPool
+                ->getConnectionForTable(self::TABLE)
+                ->insert(
+                    self::TABLE,
+                    [
+                        'collection' => $collection,
+                        'identifier' => $identifier,
+                        'vector' => json_encode($vector, JSON_THROW_ON_ERROR),
+                        'content_hash' => $contentHash,
+                        'tstamp' => $now,
+                    ],
+                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
+                );
+        }
+    }
+
+    public function findContentHash(string $collection, string $identifier): ?string
+    {
+        $row = $this->findRow($collection, $identifier);
+        return $row !== null ? (string) $row['content_hash'] : null;
+    }
+
+    /**
+     * Returns all vectors for the given collection.
+     *
+     * @return array<array{identifier: string, vector: float[]}>
+     */
+    public function findByCollection(string $collection): array
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+        $rows = $queryBuilder
+            ->select('identifier', 'vector')
+            ->from(self::TABLE)
+            ->where(
+                $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection))
+            )
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        return array_map(static function (array $row): array {
+            return [
+                'identifier' => (string) $row['identifier'],
+                'vector' => json_decode((string) $row['vector'], true, 512, JSON_THROW_ON_ERROR),
+            ];
+        }, $rows);
+    }
+
+    public function deleteByIdentifier(string $collection, string $identifier): void
+    {
+        $this->connectionPool
+            ->getConnectionForTable(self::TABLE)
+            ->delete(self::TABLE, ['collection' => $collection, 'identifier' => $identifier]);
+    }
+
+    public function deleteByCollection(string $collection): void
+    {
+        $this->connectionPool
+            ->getConnectionForTable(self::TABLE)
+            ->delete(self::TABLE, ['collection' => $collection]);
+    }
+
+    /** @return array<string, mixed>|null */
+    private function findRow(string $collection, string $identifier): ?array
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+        $row = $queryBuilder
+            ->select('*')
+            ->from(self::TABLE)
+            ->where(
+                $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
+                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier))
+            )
+            ->executeQuery()
+            ->fetchAssociative();
+
+        return $row !== false ? $row : null;
+    }
+}

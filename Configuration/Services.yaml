@@ -1,0 +1,16 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: false
+
+  BoehmMatthias\SmartSearch\:
+    resource: '../Classes/*'
+
+  # Bind the embedding interface to the llama.cpp implementation.
+  # Server URLs are configured via ext_conf_template.txt (TYPO3 Install Tool → Settings → Extension Configuration).
+  BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface:
+    alias: BoehmMatthias\SmartSearch\Embedding\LlamaCppEmbeddingClient
+
+  BoehmMatthias\SmartSearch\Generation\GenerationClientInterface:
+    alias: BoehmMatthias\SmartSearch\Generation\LlamaCppGenerationClient

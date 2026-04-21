@@ -8,6 +8,7 @@ use Psr\Log\LoggerInterface;
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
 use BoehmMatthias\SmartSearch\Repository\VectorRepository;
+use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
 
 class VectorService
 {
@@ -82,6 +83,31 @@ class VectorService
         usort($scored, static fn(array $a, array $b) => $b['score'] <=> $a['score']);
 
         return array_slice($scored, 0, $topK);
+    }
+
+    /**
+     * Retrieve a wider candidate set via vector search, then re-rank the top results
+     * using the provided reranker for higher precision.
+     *
+     * @param int $rerankK How many candidates to retrieve before re-ranking (should be > $topK).
+     * @return array<array{identifier: string, score: float}> Top $topK results after re-ranking.
+     */
+    public function findSimilarWithRerank(
+        string $collection,
+        string $query,
+        int $topK = 5,
+        int $rerankK = 20,
+        RerankerInterface $reranker,
+    ): array {
+        $candidates = $this->findSimilar($collection, $query, max($topK, $rerankK));
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        $reranked = $reranker->rerank($query, $candidates);
+
+        return array_slice($reranked, 0, $topK);
     }
 
     /**

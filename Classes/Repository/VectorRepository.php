@@ -112,7 +112,9 @@ class VectorRepository
             ->from(self::TABLE)
             ->where(
                 $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
-                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($prefix . '%'))
+                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter(
+                    str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix) . '%'
+                ))
             )
             ->executeQuery()
             ->fetchAllAssociative();

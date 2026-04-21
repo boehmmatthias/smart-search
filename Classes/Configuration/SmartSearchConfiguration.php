@@ -55,4 +55,10 @@ class SmartSearchConfiguration
     {
         return (float) ($this->config['semanticThreshold'] ?? 0.30);
     }
+
+    public function getSystemPrompt(): ?string
+    {
+        $prompt = trim((string) ($this->config['systemPrompt'] ?? ''));
+        return $prompt !== '' ? $prompt : null;
+    }
 }

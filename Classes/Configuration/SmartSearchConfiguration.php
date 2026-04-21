@@ -55,4 +55,13 @@ class SmartSearchConfiguration
     {
         return (float) ($this->config['semanticThreshold'] ?? 0.30);
     }
+
+    /**
+     * Returns a custom system prompt for the generation service, or null to use the built-in default.
+     */
+    public function getSystemPrompt(): ?string
+    {
+        $prompt = trim((string) ($this->config['systemPrompt'] ?? ''));
+        return $prompt !== '' ? $prompt : null;
+    }
 }

@@ -39,11 +39,12 @@ class SlidingWindowChunker implements ChunkingStrategyInterface
                 // Look back up to 120 chars for a sentence boundary
                 $lookback = max($start, $end - 120);
                 $window = mb_substr($text, $lookback, $end - $lookback);
-                $lastBreak = max(
+                $positions = array_filter([
                     mb_strrpos($window, '. '),
                     mb_strrpos($window, '? '),
                     mb_strrpos($window, '! '),
-                );
+                ], static fn($p) => $p !== false);
+                $lastBreak = empty($positions) ? false : max($positions);
 
                 if ($lastBreak !== false && $lastBreak > 0) {
                     $end = $lookback + $lastBreak + 2; // include the punctuation + space

@@ -107,19 +107,23 @@ class VectorRepository
     public function findIdentifiersByPrefix(string $collection, string $prefix): array
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+
         $rows = $queryBuilder
             ->select('identifier')
             ->from(self::TABLE)
             ->where(
                 $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
-                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter(
-                    str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix) . '%'
-                ))
+                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($this->escapeLikePrefix($prefix)))
             )
             ->executeQuery()
             ->fetchAllAssociative();
 
         return array_column($rows, 'identifier');
+    }
+
+    private function escapeLikePrefix(string $prefix): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix) . '%';
     }
 
     /** @return array<string, mixed>|null */

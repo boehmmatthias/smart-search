@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace BoehmMatthias\SmartSearch\Service;
 
 use Psr\Log\LoggerInterface;
+use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
 use BoehmMatthias\SmartSearch\Repository\VectorRepository;
@@ -44,6 +45,45 @@ class VectorService
             'identifier' => $identifier,
             'dimensions' => count($vector),
         ]);
+    }
+
+    /**
+     * Split text into chunks and embed each chunk separately.
+     * Chunk identifiers are derived as "{$identifier}_chunk_{$n}" so they
+     * round-trip back to the parent record via a simple explode('_chunk_', ...).
+     * Chunks removed since the last call (e.g. because the document got shorter)
+     * are deleted automatically.
+     *
+     * @param ChunkingStrategyInterface $strategy Strategy that decides how to split the text.
+     */
+    public function embedAndStoreChunked(
+        string $collection,
+        string|int $identifier,
+        string $text,
+        ChunkingStrategyInterface $strategy,
+    ): void {
+        $identifier = (string) $identifier;
+        $chunks = $strategy->chunk($text);
+
+        $storedChunkIdentifiers = [];
+        foreach ($chunks as $index => $chunk) {
+            $chunkIdentifier = $identifier . '_chunk_' . $index;
+            $storedChunkIdentifiers[] = $chunkIdentifier;
+            $this->embedAndStore($collection, $chunkIdentifier, $chunk);
+        }
+
+        // Remove stale chunks from a previous version of this document
+        $prefix = $identifier . '_chunk_';
+        $allInCollection = $this->vectorRepository->findIdentifiersByPrefix($collection, $prefix);
+        foreach ($allInCollection as $existing) {
+            if (!in_array($existing, $storedChunkIdentifiers, true)) {
+                $this->vectorRepository->deleteByIdentifier($collection, $existing);
+                $this->logger->debug('Deleted stale chunk', [
+                    'collection' => $collection,
+                    'identifier' => $existing,
+                ]);
+            }
+        }
     }
 
     /**

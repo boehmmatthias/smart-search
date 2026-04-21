@@ -98,6 +98,28 @@ class VectorRepository
             ->delete(self::TABLE, ['collection' => $collection]);
     }
 
+    /**
+     * Returns all identifiers in a collection whose identifier starts with $prefix.
+     * Used to find and clean up stale chunks after a document is re-chunked.
+     *
+     * @return string[]
+     */
+    public function findIdentifiersByPrefix(string $collection, string $prefix): array
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+        $rows = $queryBuilder
+            ->select('identifier')
+            ->from(self::TABLE)
+            ->where(
+                $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
+                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($prefix . '%'))
+            )
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        return array_column($rows, 'identifier');
+    }
+
     /** @return array<string, mixed>|null */
     private function findRow(string $collection, string $identifier): ?array
     {

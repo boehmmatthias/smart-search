@@ -28,13 +28,24 @@ class ParagraphChunker implements ChunkingStrategyInterface
         $current = '';
 
         foreach ($paragraphs as $paragraph) {
-            $candidate = $current !== '' ? $current . "\n\n" . $paragraph : $paragraph;
+            if ($current === '') {
+                $current = $paragraph;
+                continue;
+            }
 
-            if (mb_strlen($candidate) > $this->maxChunkSize && $current !== '') {
+            if (mb_strlen($current) < $this->minChunkSize) {
+                // Current chunk is too small to stand alone — try to absorb the next paragraph
+                $candidate = $current . "\n\n" . $paragraph;
+                if (mb_strlen($candidate) <= $this->maxChunkSize) {
+                    $current = $candidate;
+                } else {
+                    $chunks[] = $current;
+                    $current = $paragraph;
+                }
+            } else {
+                // Current chunk is substantial — emit it and start a new one
                 $chunks[] = $current;
                 $current = $paragraph;
-            } else {
-                $current = $candidate;
             }
         }
 

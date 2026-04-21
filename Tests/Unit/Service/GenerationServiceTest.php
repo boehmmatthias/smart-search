@@ -98,8 +98,9 @@ final class GenerationServiceTest extends TestCase
     #[Test]
     public function generateUsesConfiguredSystemPromptWhenNoOverrideGiven(): void
     {
-        $this->configuration->method('getSystemPrompt')->willReturn('Config-level prompt.');
-        $service = new GenerationService($this->client, $this->configuration);
+        $configuration = $this->createMock(SmartSearchConfiguration::class);
+        $configuration->method('getSystemPrompt')->willReturn('Config-level prompt.');
+        $service = new GenerationService($this->client, $configuration);
 
         $this->client
             ->expects(self::once())

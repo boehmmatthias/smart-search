@@ -8,6 +8,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
 use BoehmMatthias\SmartSearch\Repository\VectorRepository;
@@ -150,6 +151,60 @@ final class VectorServiceTest extends TestCase
         $results = $this->service->findSimilar('col', 'query');
 
         self::assertSame([], $results);
+    }
+
+    // --- embedAndStoreChunked ---
+
+    #[Test]
+    public function embedAndStoreChunkedStoresOneEntryPerChunk(): void
+    {
+        $strategy = $this->createMock(ChunkingStrategyInterface::class);
+        $strategy->method('chunk')->willReturn(['First chunk.', 'Second chunk.']);
+
+        $this->vectorRepository->method('findContentHash')->willReturn(null);
+        $this->embeddingClient->method('embed')->willReturn([0.1, 0.2]);
+
+        $upsertedIdentifiers = [];
+        $this->vectorRepository
+            ->expects(self::exactly(2))
+            ->method('upsert')
+            ->willReturnCallback(static function (string $col, string $id) use (&$upsertedIdentifiers): void {
+                $upsertedIdentifiers[] = $id;
+            });
+
+        $this->vectorRepository->method('findIdentifiersByPrefix')->willReturn([]);
+
+        $this->service->embedAndStoreChunked('col', '42', 'Full text.', $strategy);
+
+        self::assertSame(['42_chunk_0', '42_chunk_1'], $upsertedIdentifiers);
+    }
+
+    #[Test]
+    public function embedAndStoreChunkedDeletesStaleChunks(): void
+    {
+        $strategy = $this->createMock(ChunkingStrategyInterface::class);
+        $strategy->method('chunk')->willReturn(['Only chunk.']);
+
+        $this->vectorRepository->method('findContentHash')->willReturn(null);
+        $this->embeddingClient->method('embed')->willReturn([0.1]);
+        $this->vectorRepository->method('upsert');
+
+        // DB has 3 old chunks; only chunk_0 is still current
+        $this->vectorRepository
+            ->method('findIdentifiersByPrefix')
+            ->willReturn(['42_chunk_0', '42_chunk_1', '42_chunk_2']);
+
+        $deletedIdentifiers = [];
+        $this->vectorRepository
+            ->expects(self::exactly(2))
+            ->method('deleteByIdentifier')
+            ->willReturnCallback(static function (string $col, string $id) use (&$deletedIdentifiers): void {
+                $deletedIdentifiers[] = $id;
+            });
+
+        $this->service->embedAndStoreChunked('col', '42', 'Full text.', $strategy);
+
+        self::assertSame(['42_chunk_1', '42_chunk_2'], $deletedIdentifiers);
     }
 
     #[Test]

@@ -22,6 +22,7 @@ class VectorRepository
     {
         $existing = $this->findRow($collection, $identifier);
         $now = time();
+        $packed = $this->packVector($vector);
 
         if ($existing !== null) {
             $this->connectionPool
@@ -29,12 +30,12 @@ class VectorRepository
                 ->update(
                     self::TABLE,
                     [
-                        'vector' => json_encode($vector, JSON_THROW_ON_ERROR),
+                        'vector' => $packed,
                         'content_hash' => $contentHash,
                         'tstamp' => $now,
                     ],
                     ['collection' => $collection, 'identifier' => $identifier],
-                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
+                    [Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_INT]
                 );
         } else {
             $this->connectionPool
@@ -44,11 +45,11 @@ class VectorRepository
                     [
                         'collection' => $collection,
                         'identifier' => $identifier,
-                        'vector' => json_encode($vector, JSON_THROW_ON_ERROR),
+                        'vector' => $packed,
                         'content_hash' => $contentHash,
                         'tstamp' => $now,
                     ],
-                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
+                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_INT]
                 );
         }
     }
@@ -76,10 +77,10 @@ class VectorRepository
             ->executeQuery()
             ->fetchAllAssociative();
 
-        return array_map(static function (array $row): array {
+        return array_map(function (array $row): array {
             return [
                 'identifier' => (string) $row['identifier'],
-                'vector' => json_decode((string) $row['vector'], true, 512, JSON_THROW_ON_ERROR),
+                'vector' => $this->unpackVector((string) $row['vector']),
             ];
         }, $rows);
     }
@@ -124,6 +125,30 @@ class VectorRepository
     private function escapeLikePrefix(string $prefix): string
     {
         return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix) . '%';
+    }
+
+    /**
+     * Encodes a float array as packed IEEE 754 single-precision (float32) binary.
+     * ~4 bytes per dimension vs ~8–14 bytes per dimension in JSON.
+     *
+     * @param float[] $vector
+     */
+    private function packVector(array $vector): string
+    {
+        return pack('f*', ...$vector);
+    }
+
+    /**
+     * Decodes a packed float32 binary string back to a float array.
+     *
+     * @return float[]
+     */
+    private function unpackVector(string $binary): array
+    {
+        if ($binary === '') {
+            return [];
+        }
+        return array_values((array) unpack('f*', $binary));
     }
 
     /** @return array<string, mixed>|null */

@@ -9,6 +9,7 @@ use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
+use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
 use BoehmMatthias\SmartSearch\Repository\VectorRepository;
@@ -151,6 +152,45 @@ final class VectorServiceTest extends TestCase
         $results = $this->service->findSimilar('col', 'query');
 
         self::assertSame([], $results);
+    }
+
+    // --- findSimilarWithRerank ---
+
+    #[Test]
+    public function findSimilarWithRerankReturnsEmptyArrayWhenNoVectorsExist(): void
+    {
+        $reranker = $this->createMock(RerankerInterface::class);
+        $this->vectorRepository->method('findByCollection')->willReturn([]);
+        $reranker->expects(self::never())->method('rerank');
+
+        $results = $this->service->findSimilarWithRerank('col', 'query', $reranker);
+
+        self::assertSame([], $results);
+    }
+
+    #[Test]
+    public function findSimilarWithRerankDelegatesReorderingAndSlicesToTopK(): void
+    {
+        $reranker = $this->createMock(RerankerInterface::class);
+
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => 'a', 'vector' => [1.0, 0.0]],
+            ['identifier' => 'b', 'vector' => [0.9, 0.1]],
+            ['identifier' => 'c', 'vector' => [0.8, 0.2]],
+        ]);
+
+        $reranker->method('rerank')->willReturn([
+            ['identifier' => 'c', 'score' => 1.0],
+            ['identifier' => 'b', 'score' => 0.5],
+            ['identifier' => 'a', 'score' => 0.25],
+        ]);
+
+        $results = $this->service->findSimilarWithRerank('col', 'query', $reranker, topK: 2);
+
+        self::assertCount(2, $results);
+        self::assertSame('c', $results[0]['identifier']);
+        self::assertSame('b', $results[1]['identifier']);
     }
 
     // --- embedAndStoreChunked ---

@@ -138,9 +138,9 @@ class VectorService
     public function findSimilarWithRerank(
         string $collection,
         string $query,
+        RerankerInterface $reranker,
         int $topK = 5,
         int $rerankK = 20,
-        RerankerInterface $reranker,
     ): array {
         $candidates = $this->findSimilar($collection, $query, max($topK, $rerankK));
 

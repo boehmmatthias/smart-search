@@ -3,7 +3,7 @@ CREATE TABLE tx_smartsearch_vector
     uid          INT UNSIGNED NOT NULL AUTO_INCREMENT,
     collection   VARCHAR(255) NOT NULL DEFAULT '',
     identifier   VARCHAR(255) NOT NULL DEFAULT '',
-    vector       LONGTEXT     NOT NULL,
+    vector       MEDIUMBLOB   NOT NULL,
     content_hash VARCHAR(32)  NOT NULL DEFAULT '',
     metadata     TEXT         NOT NULL,
     tstamp       INT UNSIGNED NOT NULL DEFAULT 0,

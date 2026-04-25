@@ -7,18 +7,22 @@ namespace BoehmMatthias\SmartSearch\Tests\Unit\Service;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Generation\GenerationClientInterface;
 use BoehmMatthias\SmartSearch\Service\GenerationService;
 
 final class GenerationServiceTest extends TestCase
 {
     private GenerationClientInterface&MockObject $client;
+    private SmartSearchConfiguration&MockObject $configuration;
     private GenerationService $service;
 
     protected function setUp(): void
     {
         $this->client = $this->createMock(GenerationClientInterface::class);
-        $this->service = new GenerationService($this->client);
+        $this->configuration = $this->createMock(SmartSearchConfiguration::class);
+        $this->configuration->method('getSystemPrompt')->willReturn(null);
+        $this->service = new GenerationService($this->client, $this->configuration);
     }
 
     #[Test]
@@ -75,5 +79,37 @@ final class GenerationServiceTest extends TestCase
         $result = $this->service->generate('query', ['context']);
 
         self::assertSame('The generated answer.', $result);
+    }
+
+    #[Test]
+    public function generateUsesInlineSystemPromptOverride(): void
+    {
+        $this->client
+            ->expects(self::once())
+            ->method('complete')
+            ->with(self::callback(function (array $messages): bool {
+                return ($messages[0]['content'] ?? '') === 'Custom inline prompt.';
+            }))
+            ->willReturn('Answer.');
+
+        $this->service->generate('question', ['context'], 'Custom inline prompt.');
+    }
+
+    #[Test]
+    public function generateUsesConfiguredSystemPromptWhenNoOverrideGiven(): void
+    {
+        $configuration = $this->createMock(SmartSearchConfiguration::class);
+        $configuration->method('getSystemPrompt')->willReturn('Config-level prompt.');
+        $service = new GenerationService($this->client, $configuration);
+
+        $this->client
+            ->expects(self::once())
+            ->method('complete')
+            ->with(self::callback(function (array $messages): bool {
+                return ($messages[0]['content'] ?? '') === 'Config-level prompt.';
+            }))
+            ->willReturn('Answer.');
+
+        $service->generate('question', ['context']);
     }
 }

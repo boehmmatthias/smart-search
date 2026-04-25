@@ -23,6 +23,7 @@ class VectorRepository
     {
         $existing = $this->findRow($collection, $identifier);
         $now = time();
+        $packed = $this->packVector($vector);
         $encodedMetadata = json_encode($metadata, JSON_THROW_ON_ERROR);
 
         if ($existing !== null) {
@@ -31,13 +32,13 @@ class VectorRepository
                 ->update(
                     self::TABLE,
                     [
-                        'vector' => json_encode($vector, JSON_THROW_ON_ERROR),
+                        'vector' => $packed,
                         'content_hash' => $contentHash,
                         'metadata' => $encodedMetadata,
                         'tstamp' => $now,
                     ],
                     ['collection' => $collection, 'identifier' => $identifier],
-                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
+                    [Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
                 );
         } else {
             $this->connectionPool
@@ -47,12 +48,12 @@ class VectorRepository
                     [
                         'collection' => $collection,
                         'identifier' => $identifier,
-                        'vector' => json_encode($vector, JSON_THROW_ON_ERROR),
+                        'vector' => $packed,
                         'content_hash' => $contentHash,
                         'metadata' => $encodedMetadata,
                         'tstamp' => $now,
                     ],
-                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
+                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
                 );
         }
     }
@@ -82,13 +83,13 @@ class VectorRepository
             ->executeQuery()
             ->fetchAllAssociative();
 
-        $entries = array_map(static function (array $row): array {
+        $entries = array_map(function (array $row): array {
             $meta = $row['metadata'] !== '' && $row['metadata'] !== null
                 ? (array) json_decode((string) $row['metadata'], true, 512, JSON_THROW_ON_ERROR)
                 : [];
             return [
                 'identifier' => (string) $row['identifier'],
-                'vector' => json_decode((string) $row['vector'], true, 512, JSON_THROW_ON_ERROR),
+                'vector' => $this->unpackVector((string) $row['vector']),
                 'metadata' => $meta,
             ];
         }, $rows);
@@ -119,6 +120,58 @@ class VectorRepository
         $this->connectionPool
             ->getConnectionForTable(self::TABLE)
             ->delete(self::TABLE, ['collection' => $collection]);
+    }
+
+    /**
+     * Returns all identifiers in a collection whose identifier starts with $prefix.
+     * Used to find and clean up stale chunks after a document is re-chunked.
+     *
+     * @return string[]
+     */
+    public function findIdentifiersByPrefix(string $collection, string $prefix): array
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+
+        $rows = $queryBuilder
+            ->select('identifier')
+            ->from(self::TABLE)
+            ->where(
+                $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
+                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($this->escapeLikePrefix($prefix)))
+            )
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        return array_column($rows, 'identifier');
+    }
+
+    private function escapeLikePrefix(string $prefix): string
+    {
+        return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix) . '%';
+    }
+
+    /**
+     * Encodes a float array as packed IEEE 754 single-precision (float32) binary.
+     * ~4 bytes per dimension vs ~8–14 bytes per dimension in JSON.
+     *
+     * @param float[] $vector
+     */
+    private function packVector(array $vector): string
+    {
+        return pack('f*', ...$vector);
+    }
+
+    /**
+     * Decodes a packed float32 binary string back to a float array.
+     *
+     * @return float[]
+     */
+    private function unpackVector(string $binary): array
+    {
+        if ($binary === '') {
+            return [];
+        }
+        return array_values((array) unpack('f*', $binary));
     }
 
     /** @return array<string, mixed>|null */

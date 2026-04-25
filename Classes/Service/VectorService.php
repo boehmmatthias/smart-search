@@ -22,8 +22,10 @@ class VectorService
     /**
      * Embed the given text and store it for the collection/identifier pair.
      * Skips the embedding API call if the text content has not changed since last store.
+     *
+     * @param array<string, scalar> $metadata Optional metadata stored alongside the vector (e.g. ['sys_language_uid' => 1]).
      */
-    public function embedAndStore(string $collection, string|int $identifier, string $text): void
+    public function embedAndStore(string $collection, string|int $identifier, string $text, array $metadata = []): void
     {
         $identifier = (string) $identifier;
         $text = $this->normalise($text);
@@ -38,7 +40,7 @@ class VectorService
         }
 
         $vector = $this->embeddingClient->embed($text);
-        $this->vectorRepository->upsert($collection, $identifier, $vector, $hash);
+        $this->vectorRepository->upsert($collection, $identifier, $vector, $hash, $metadata);
 
         $this->logger->debug('Stored embedding', [
             'collection' => $collection,
@@ -89,11 +91,12 @@ class VectorService
     /**
      * Find the most semantically similar entries in the collection.
      *
+     * @param array<string, scalar> $metadataFilters Only entries matching ALL filters are considered (e.g. ['sys_language_uid' => 1]).
      * @return array<array{identifier: string, score: float}> Sorted by score descending
      */
-    public function findSimilar(string $collection, string $query, int $topK = 5): array
+    public function findSimilar(string $collection, string $query, int $topK = 5, array $metadataFilters = []): array
     {
-        $all = $this->vectorRepository->findByCollection($collection);
+        $all = $this->vectorRepository->findByCollection($collection, $metadataFilters);
 
         if (empty($all)) {
             return [];

@@ -17,12 +17,14 @@ class VectorRepository
 
     /**
      * @param float[] $vector
+     * @param array<string, scalar> $metadata Arbitrary key-value pairs stored alongside the vector (e.g. ['sys_language_uid' => 1, 'site' => 'main']).
      */
-    public function upsert(string $collection, string $identifier, array $vector, string $contentHash): void
+    public function upsert(string $collection, string $identifier, array $vector, string $contentHash, array $metadata = []): void
     {
         $existing = $this->findRow($collection, $identifier);
         $now = time();
         $packed = $this->packVector($vector);
+        $encodedMetadata = json_encode($metadata, JSON_THROW_ON_ERROR);
 
         if ($existing !== null) {
             $this->connectionPool
@@ -32,10 +34,11 @@ class VectorRepository
                     [
                         'vector' => $packed,
                         'content_hash' => $contentHash,
+                        'metadata' => $encodedMetadata,
                         'tstamp' => $now,
                     ],
                     ['collection' => $collection, 'identifier' => $identifier],
-                    [Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_INT]
+                    [Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
                 );
         } else {
             $this->connectionPool
@@ -47,9 +50,10 @@ class VectorRepository
                         'identifier' => $identifier,
                         'vector' => $packed,
                         'content_hash' => $contentHash,
+                        'metadata' => $encodedMetadata,
                         'tstamp' => $now,
                     ],
-                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_INT]
+                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
                 );
         }
     }
@@ -61,15 +65,17 @@ class VectorRepository
     }
 
     /**
-     * Returns all vectors for the given collection.
+     * Returns all vectors for the given collection, optionally filtered by metadata key-value pairs.
+     * Metadata filtering is performed in PHP after the DB query (no JSON querying required).
      *
-     * @return array<array{identifier: string, vector: float[]}>
+     * @param array<string, scalar> $metadataFilters Only entries whose metadata contains ALL given key-value pairs are returned.
+     * @return array<array{identifier: string, vector: float[], metadata: array<string, scalar>}>
      */
-    public function findByCollection(string $collection): array
+    public function findByCollection(string $collection, array $metadataFilters = []): array
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
         $rows = $queryBuilder
-            ->select('identifier', 'vector')
+            ->select('identifier', 'vector', 'metadata')
             ->from(self::TABLE)
             ->where(
                 $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection))
@@ -77,12 +83,29 @@ class VectorRepository
             ->executeQuery()
             ->fetchAllAssociative();
 
-        return array_map(function (array $row): array {
+        $entries = array_map(function (array $row): array {
+            $meta = $row['metadata'] !== '' && $row['metadata'] !== null
+                ? (array) json_decode((string) $row['metadata'], true, 512, JSON_THROW_ON_ERROR)
+                : [];
             return [
                 'identifier' => (string) $row['identifier'],
                 'vector' => $this->unpackVector((string) $row['vector']),
+                'metadata' => $meta,
             ];
         }, $rows);
+
+        if (empty($metadataFilters)) {
+            return $entries;
+        }
+
+        return array_values(array_filter($entries, static function (array $entry) use ($metadataFilters): bool {
+            foreach ($metadataFilters as $key => $value) {
+                if (!isset($entry['metadata'][$key]) || $entry['metadata'][$key] != $value) {
+                    return false;
+                }
+            }
+            return true;
+        }));
     }
 
     public function deleteByIdentifier(string $collection, string $identifier): void

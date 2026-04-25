@@ -5,6 +5,7 @@ CREATE TABLE tx_smartsearch_vector
     identifier   VARCHAR(255) NOT NULL DEFAULT '',
     vector       MEDIUMBLOB   NOT NULL,
     content_hash VARCHAR(32)  NOT NULL DEFAULT '',
+    metadata     TEXT         NOT NULL,
     tstamp       INT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (uid),
     UNIQUE KEY uq_collection_identifier (collection, identifier(191)),

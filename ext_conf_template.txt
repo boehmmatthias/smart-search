@@ -21,3 +21,6 @@ documentContextLength = 800
 
 # cat=LLM/RAG; type=string; label=Minimum cosine similarity score (0.0–1.0) for semantic results; below this falls back to keyword search
 semanticThreshold = 0.30
+
+# cat=LLM/RAG; type=text; label=Custom system prompt for the generation service (leave empty to use the built-in default)
+systemPrompt =

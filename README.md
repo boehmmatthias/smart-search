@@ -350,8 +350,9 @@ tx_smartsearch_vector
 ├── uid          INT UNSIGNED AUTO_INCREMENT  PRIMARY KEY
 ├── collection   VARCHAR(255)                 -- scopes entries per extension/use-case
 ├── identifier   VARCHAR(255)                 -- stable record ID within the collection
-├── vector       LONGTEXT                     -- JSON-encoded float array
+├── vector       MEDIUMBLOB                   -- packed IEEE 754 float32, via pack('f*')
 ├── content_hash VARCHAR(32)                  -- MD5 of the normalised text (change detection)
+├── metadata     TEXT                         -- JSON object, scalar values only
 └── tstamp       INT UNSIGNED                 -- Unix timestamp of last update
 
 UNIQUE KEY  uq_collection_identifier (collection, identifier(191))
@@ -359,6 +360,30 @@ KEY         idx_collection (collection)
 ```
 
 Multiple extensions can share the table without collision by using distinct collection names (e.g. `news-articles`, `faq-entries`, `product-descriptions`).
+
+---
+
+## Upgrading from 0.1.0
+
+**0.1.0 stored vectors as JSON text. 0.2.0 stores them as packed float32 binary. You must run the upgrade wizard, and search will return nothing until you do.**
+
+The column type change on its own does not convert the data — the JSON bytes survive it untouched. Worse, the failure is silent: reading that text as packed floats produces finite, plausible-looking numbers of the wrong dimension, so every row is quietly skipped and every query returns no results. Only a warning per row per query hints at it.
+
+**Re-indexing does not fix this.** `content_hash` still matches the source text, so `embedAndStore()` short-circuits before embedding and repairs nothing.
+
+After `composer update` and the database schema update, run:
+
+```bash
+vendor/bin/typo3 upgrade:run smartSearchMigrateJsonVectorsToPackedFloat32
+```
+
+Or apply it from the Install Tool under *Upgrade → Upgrade Wizard*.
+
+The wizard converts the stored values in place. It needs no embedding server — only the encoding changes, not the text the vectors were derived from — so `content_hash` is left alone and nothing has to be re-embedded. It is safe to re-run: it only touches rows still holding JSON.
+
+On PostgreSQL the wizard also performs the column type change itself. Doctrine cannot express that conversion (`ALTER COLUMN vector TYPE BYTEA` fails without a `USING` clause), so the schema update alone leaves a PostgreSQL install unable to complete the upgrade.
+
+If you would rather start clean, the alternative is to call `VectorRepository::deleteByCollection()` for each collection and re-index from your consuming extension. That requires a running embedding server and costs a full re-embed of your corpus.
 
 ---
 

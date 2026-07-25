@@ -72,4 +72,58 @@ final class VectorCodec
 
         return array_values((array) unpack('f*', $binary));
     }
+
+    /**
+     * True if the value is a vector in the pre-0.2.0 JSON text format.
+     *
+     * A JSON float array always starts with '[', which packed float32 output effectively
+     * never does — that would need a first component whose low byte is 0x5B followed by three
+     * more bytes spelling a plausible prefix.
+     */
+    public static function isLegacyJson(string $binary): bool
+    {
+        return str_starts_with($binary, '[');
+    }
+
+    /**
+     * Re-encodes a pre-0.2.0 JSON float array as packed float32.
+     *
+     * Lossless with respect to the target format: pack('f*') would have narrowed these same
+     * float64 values to float32 on write anyway, so the result is identical to what storing
+     * the vector today would produce.
+     *
+     * @throws \RuntimeException if the value is not a usable JSON float array
+     */
+    public static function packLegacyJson(string $json): string
+    {
+        try {
+            $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \RuntimeException(
+                sprintf('Legacy vector is not valid JSON: %s', $e->getMessage()),
+                1_700_004_003,
+                $e
+            );
+        }
+
+        if (!is_array($decoded) || $decoded === []) {
+            throw new \RuntimeException(
+                'Legacy vector JSON is not a non-empty array.',
+                1_700_004_004
+            );
+        }
+
+        $floats = [];
+        foreach ($decoded as $component) {
+            if (!is_int($component) && !is_float($component)) {
+                throw new \RuntimeException(
+                    'Legacy vector JSON contains a non-numeric component.',
+                    1_700_004_005
+                );
+            }
+            $floats[] = (float) $component;
+        }
+
+        return self::pack($floats);
+    }
 }

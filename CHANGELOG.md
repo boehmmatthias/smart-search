@@ -6,8 +6,22 @@
 
 - `VectorCodec` — pack/unpack extracted from `VectorRepository` so the float32 round trip is
   testable without a database.
+- **Upgrade wizard `smartSearchMigrateJsonVectorsToPackedFloat32`** — converts vectors stored by
+  0.1.0 as JSON text into packed float32 binary. **Required when upgrading from 0.1.0; search
+  returns nothing until it is run, and re-indexing cannot repair the rows because `content_hash`
+  still matches.** The conversion is a pure re-encode: no embedding server is needed, nothing is
+  re-embedded, and it is safe to re-run. On PostgreSQL it also performs the `vector` column type
+  change, which Doctrine cannot express (`ALTER COLUMN … TYPE BYTEA` needs a `USING` clause).
+  Run via `vendor/bin/typo3 upgrade:run smartSearchMigrateJsonVectorsToPackedFloat32` or the
+  Install Tool.
 
 ### Changed
+
+- **Breaking:** `metadata` is now `TEXT DEFAULT NULL` instead of `TEXT NOT NULL`. The previous
+  definition could not be applied to an existing table: PostgreSQL rejects it outright (`column
+  "metadata" contains null values`), and `TEXT NOT NULL DEFAULT ''` is not a valid alternative
+  because MySQL forbids defaults on `TEXT` columns entirely (error 1101). The read path already
+  tolerated `NULL`.
 
 - **Breaking:** `VectorRepository::__construct()` now takes a `Psr\Log\LoggerInterface` as its
   second argument. Only affects code that instantiates the repository directly; DI wiring is

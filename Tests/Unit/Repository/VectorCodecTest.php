@@ -79,4 +79,69 @@ final class VectorCodecTest extends TestCase
         // unpack('f*') would silently drop the trailing byte and return one float.
         VectorCodec::unpack('abcde');
     }
+
+    // --- legacy JSON migration ---
+
+    #[Test]
+    public function legacyJsonIsRecognisedAndPackedOutputIsNot(): void
+    {
+        self::assertTrue(VectorCodec::isLegacyJson('[0.1,0.2,0.3]'));
+        self::assertFalse(VectorCodec::isLegacyJson(VectorCodec::pack([0.1, 0.2, 0.3])));
+        self::assertFalse(VectorCodec::isLegacyJson(''));
+    }
+
+    #[Test]
+    public function packLegacyJsonProducesExactlyWhatStoringTheVectorTodayWould(): void
+    {
+        $vector = [0.1, -0.42, 0.87654321, 0.0, 1.0];
+
+        $migrated = VectorCodec::packLegacyJson(json_encode($vector, JSON_THROW_ON_ERROR));
+
+        // Lossless with respect to the target format — pack() would have narrowed these same
+        // float64 values to float32 on write anyway, so migrating loses nothing that storing
+        // the vector today would have kept.
+        self::assertSame(VectorCodec::pack($vector), $migrated);
+
+        // float32 carries ~7 decimal digits, so the round trip is only equal within that
+        // precision. Lane A measured the effect on ranking at ~3e-9 in cosine terms.
+        foreach (VectorCodec::unpack($migrated) as $index => $actual) {
+            self::assertEqualsWithDelta($vector[$index], $actual, 1.0e-6);
+        }
+    }
+
+    #[Test]
+    public function packLegacyJsonAcceptsIntegerComponents(): void
+    {
+        // json_decode turns a JSON "1" into an int, not a float.
+        $result = VectorCodec::unpack(VectorCodec::packLegacyJson('[1,0,-1]'));
+
+        self::assertSame([1.0, 0.0, -1.0], $result);
+    }
+
+    #[Test]
+    public function packLegacyJsonRejectsMalformedJson(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1_700_004_003);
+
+        VectorCodec::packLegacyJson('[0.1,0.2,');
+    }
+
+    #[Test]
+    public function packLegacyJsonRejectsAnEmptyOrNonArrayPayload(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1_700_004_004);
+
+        VectorCodec::packLegacyJson('[]');
+    }
+
+    #[Test]
+    public function packLegacyJsonRejectsNonNumericComponents(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1_700_004_005);
+
+        VectorCodec::packLegacyJson('[0.1,"oops",0.3]');
+    }
 }

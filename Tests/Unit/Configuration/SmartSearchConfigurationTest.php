@@ -72,6 +72,21 @@ final class SmartSearchConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function embeddingContextLengthFallsBackWhenClearedOrNonPositive(): void
+    {
+        // The Install Tool stores settings as strings, so clearing the field leaves '' — and
+        // (int) '' is 0, which made normalise() truncate every document to the empty string.
+        self::assertSame(6000, $this->makeConfiguration(['embeddingContextLength' => ''])->getEmbeddingContextLength());
+        self::assertSame(6000, $this->makeConfiguration(['embeddingContextLength' => '0'])->getEmbeddingContextLength());
+        self::assertSame(6000, $this->makeConfiguration(['embeddingContextLength' => 0])->getEmbeddingContextLength());
+
+        // Negative was worse than zero: mb_substr($text, 0, -50) strips the tail.
+        self::assertSame(6000, $this->makeConfiguration(['embeddingContextLength' => '-50'])->getEmbeddingContextLength());
+
+        self::assertSame(1, $this->makeConfiguration(['embeddingContextLength' => '1'])->getEmbeddingContextLength());
+    }
+
+    #[Test]
     public function systemPromptIsNullWhenBlankSoTheBuiltInDefaultWins(): void
     {
         self::assertNull($this->makeConfiguration(['systemPrompt' => ''])->getSystemPrompt());

@@ -17,6 +17,19 @@
 
 ### Fixed
 
+- **Breaking:** `LlamaCppEmbeddingClient` throws on HTTP 400 instead of halving the text and
+  retrying. The retry produced a vector for as little as an eighth of the document, which was then
+  stored against the *full*-text hash — so every later `embedAndStore()` short-circuited on it and
+  the row could never be repaired, not even after raising `--ctx-size`. Use `embeddingContextLength`
+  or a `ChunkingStrategyInterface` to fit text into the model's window.
+- `LlamaCppEmbeddingClient` rejects an empty embedding array. A payload of `[{"embedding":[[]]}]`
+  satisfied the previous shape check and returned `[]`, which stored a zero-length vector; if the
+  query vector was also empty, every row scored `0.0` and the first `topK` rows were returned
+  presented as ranked hits.
+- `embeddingContextLength` is clamped to a positive value. Clearing the field in the Install Tool
+  left `''`, and `(int) ''` is `0` — so every document embedded the empty string, giving identical
+  vectors across the collection and an identical `content_hash`. A negative value stripped the tail
+  of each document instead of truncating it.
 - `embedAndStoreChunked()` accepts `metadata` and stores it on every chunk. Without it, chunked
   documents were stored with empty metadata, so `findSimilar()` with any metadata filter returned
   **zero results on a chunked collection, always** — silently, and in a mixed collection the

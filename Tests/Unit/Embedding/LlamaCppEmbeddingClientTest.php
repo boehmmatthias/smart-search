@@ -53,26 +53,38 @@ final class LlamaCppEmbeddingClientTest extends TestCase
     }
 
     #[Test]
-    public function embedRetriesAndHalvesTextOn400(): void
+    public function embedThrowsOn400InsteadOfEmbeddingATruncatedDocument(): void
     {
-        $embedding = [0.5, 0.6];
-        $successPayload = json_encode([[
-            'embedding' => [[$embedding[0], $embedding[1]]],
-        ]]);
-
+        // Previously this halved the text and retried up to four times, returning a vector for
+        // as little as an eighth of the document. The caller hashes the full text before
+        // calling, so that partial vector was stored against the full-text hash and the row
+        // could never be repaired.
         $this->requestFactory
-            ->expects(self::exactly(2))
+            ->expects(self::once())
             ->method('request')
-            ->willReturnOnConsecutiveCalls(
-                $this->makeResponse(400, '{"error":"too long"}'),
-                $this->makeResponse(200, $successPayload),
-            );
+            ->willReturn($this->makeResponse(400, '{"error":"too long"}'));
 
-        $this->logger->expects(self::atLeastOnce())->method('warning');
+        $this->logger->expects(self::atLeastOnce())->method('error');
 
-        $result = $this->client->embed('some long text');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1_700_000_003);
 
-        self::assertSame([$embedding[0], $embedding[1]], $result);
+        $this->client->embed('some long text');
+    }
+
+    #[Test]
+    public function embedThrowsOnAnEmptyEmbeddingArray(): void
+    {
+        // [{"embedding":[[]]}] satisfies both isset() and is_array(). Returning [] from it
+        // stores a zero-length vector that later scores 0.0 against everything.
+        $this->requestFactory
+            ->method('request')
+            ->willReturn($this->makeResponse(200, (string) json_encode([['embedding' => [[]]]])));
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionCode(1_700_000_002);
+
+        $this->client->embed('hello world');
     }
 
     #[Test]

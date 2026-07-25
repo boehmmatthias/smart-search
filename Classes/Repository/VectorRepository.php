@@ -112,7 +112,7 @@ class VectorRepository
                     'tstamp' => time(),
                 ],
                 ['collection' => $collection, 'identifier' => $identifier],
-                self::COLUMN_TYPES
+                self::COLUMN_TYPES,
             );
     }
 
@@ -130,7 +130,7 @@ class VectorRepository
             ->select('identifier', 'vector', 'metadata')
             ->from(self::TABLE)
             ->where(
-                $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection))
+                $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
             )
             ->executeQuery();
 
@@ -210,7 +210,7 @@ class VectorRepository
             ->from(self::TABLE)
             ->where(
                 $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
-                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($this->escapeLikePrefix($prefix)))
+                $queryBuilder->expr()->like('identifier', $queryBuilder->createNamedParameter($this->escapeLikePrefix($prefix))),
             )
             ->executeQuery()
             ->fetchAllAssociative();
@@ -242,7 +242,7 @@ class VectorRepository
             ->from(self::TABLE)
             ->where(
                 $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
-                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier))
+                $queryBuilder->expr()->eq('identifier', $queryBuilder->createNamedParameter($identifier)),
             )
             ->executeQuery()
             ->fetchAssociative();

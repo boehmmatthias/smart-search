@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Service;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use Psr\Log\LoggerInterface;
 use Throwable;
 use TYPO3\CMS\Core\Http\RequestFactory;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 
 class ModelAvailabilityService
 {
@@ -25,7 +25,7 @@ class ModelAvailabilityService
         if ($this->embeddingAvailable === null) {
             $this->embeddingAvailable = $this->checkUrl(
                 $this->configuration->getEmbeddingServerUrl() . '/health',
-                'embedding'
+                'embedding',
             );
         }
 
@@ -37,7 +37,7 @@ class ModelAvailabilityService
         if ($this->generationAvailable === null) {
             $this->generationAvailable = $this->checkUrl(
                 $this->configuration->getGenerationServerUrl() . '/health',
-                'generation'
+                'generation',
             );
         }
 

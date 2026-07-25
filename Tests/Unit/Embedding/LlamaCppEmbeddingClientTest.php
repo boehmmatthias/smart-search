@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Embedding;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
+use BoehmMatthias\SmartSearch\Embedding\LlamaCppEmbeddingClient;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -11,8 +13,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
-use BoehmMatthias\SmartSearch\Embedding\LlamaCppEmbeddingClient;
 
 final class LlamaCppEmbeddingClientTest extends TestCase
 {
@@ -41,7 +41,7 @@ final class LlamaCppEmbeddingClientTest extends TestCase
         $embedding = [0.1, 0.2, 0.3];
         $payload = json_encode([[
             'embedding' => [$embedding],
-        ]]);
+        ]], JSON_THROW_ON_ERROR);
 
         $this->requestFactory
             ->method('request')
@@ -107,7 +107,7 @@ final class LlamaCppEmbeddingClientTest extends TestCase
     {
         $this->requestFactory
             ->method('request')
-            ->willReturn($this->makeResponse(200, json_encode([['no_embedding_here' => []]])));
+            ->willReturn($this->makeResponse(200, json_encode([['no_embedding_here' => []]], JSON_THROW_ON_ERROR)));
 
         $this->logger->expects(self::once())->method('error');
 

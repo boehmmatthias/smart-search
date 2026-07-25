@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Repository;
 
+use BoehmMatthias\SmartSearch\Repository\VectorCodec;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use BoehmMatthias\SmartSearch\Repository\VectorCodec;
 
 final class VectorCodecTest extends TestCase
 {

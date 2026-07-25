@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Repository;
 
+use BoehmMatthias\SmartSearch\Repository\MetadataFilter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use BoehmMatthias\SmartSearch\Repository\MetadataFilter;
 
 final class MetadataFilterTest extends TestCase
 {

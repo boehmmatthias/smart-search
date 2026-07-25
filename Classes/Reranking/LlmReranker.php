@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Reranking;
 
-use Psr\Log\LoggerInterface;
 use BoehmMatthias\SmartSearch\Generation\GenerationClientInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Re-ranks candidates by asking the LLM to score each one for relevance.
@@ -41,7 +41,7 @@ class LlmReranker implements RerankerInterface
                 'content' => sprintf(
                     "Query: %s\n\nDocument identifiers: [%s]\n\nReturn a JSON array ordered best-first.",
                     $query,
-                    $identifierList
+                    $identifierList,
                 ),
             ],
         ];

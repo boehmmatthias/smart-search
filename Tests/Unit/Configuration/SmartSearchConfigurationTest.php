@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Configuration;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use TYPO3\CMS\Core\Configuration\ExtensionConfiguration;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 
 final class SmartSearchConfigurationTest extends TestCase
 {
@@ -93,7 +93,7 @@ final class SmartSearchConfigurationTest extends TestCase
         self::assertNull($this->makeConfiguration(['systemPrompt' => '   '])->getSystemPrompt());
         self::assertSame(
             'Answer tersely.',
-            $this->makeConfiguration(['systemPrompt' => '  Answer tersely.  '])->getSystemPrompt()
+            $this->makeConfiguration(['systemPrompt' => '  Answer tersely.  '])->getSystemPrompt(),
         );
     }
 }

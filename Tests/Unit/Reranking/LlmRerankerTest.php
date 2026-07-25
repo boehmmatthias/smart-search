@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Reranking;
 
+use BoehmMatthias\SmartSearch\Generation\GenerationClientInterface;
+use BoehmMatthias\SmartSearch\Reranking\LlmReranker;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
-use BoehmMatthias\SmartSearch\Generation\GenerationClientInterface;
-use BoehmMatthias\SmartSearch\Reranking\LlmReranker;
 
 final class LlmRerankerTest extends TestCase
 {

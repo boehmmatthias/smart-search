@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Service;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
+use BoehmMatthias\SmartSearch\Service\ModelAvailabilityService;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
-use BoehmMatthias\SmartSearch\Service\ModelAvailabilityService;
 
 final class ModelAvailabilityServiceTest extends TestCase
 {

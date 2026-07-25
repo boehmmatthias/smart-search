@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Embedding;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 
 class LlamaCppEmbeddingClient implements EmbeddingClientInterface
 {
@@ -31,7 +31,7 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
                 'headers' => ['Content-Type' => 'application/json'],
                 'body' => json_encode(['content' => $text], JSON_THROW_ON_ERROR),
                 'http_errors' => false,
-            ]
+            ],
         );
 
         $statusCode = $response->getStatusCode();
@@ -55,9 +55,9 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
                     . 'embeddingContextLength setting to match the model\'s context window, or '
                     . 'split the text with a ChunkingStrategyInterface.',
                     $url,
-                    mb_strlen($text)
+                    mb_strlen($text),
                 ),
-                1_700_000_003
+                1_700_000_003,
             );
         }
 
@@ -70,7 +70,7 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
             ]);
             throw new \RuntimeException(
                 sprintf('Embedding server at "%s" returned HTTP %d.', $url, $statusCode),
-                1_700_000_001
+                1_700_000_001,
             );
         }
 
@@ -78,7 +78,7 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
             (string) $response->getBody(),
             true,
             512,
-            JSON_THROW_ON_ERROR
+            JSON_THROW_ON_ERROR,
         );
 
         // The emptiness check matters as much as the shape check. A payload of
@@ -96,7 +96,7 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
             ]);
             throw new \RuntimeException(
                 sprintf('Embedding server at "%s" returned an unexpected response structure.', $url),
-                1_700_000_002
+                1_700_000_002,
             );
         }
 

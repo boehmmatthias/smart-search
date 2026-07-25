@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Chunking;
 
+use BoehmMatthias\SmartSearch\Chunking\SlidingWindowChunker;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use BoehmMatthias\SmartSearch\Chunking\SlidingWindowChunker;
 
 final class SlidingWindowChunkerTest extends TestCase
 {

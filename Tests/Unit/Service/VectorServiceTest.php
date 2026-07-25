@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Service;
 
+use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
+use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
+use BoehmMatthias\SmartSearch\Repository\VectorRepository;
+use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
+use BoehmMatthias\SmartSearch\Service\VectorService;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
-use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
-use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
-use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
-use BoehmMatthias\SmartSearch\Repository\VectorRepository;
-use BoehmMatthias\SmartSearch\Service\VectorService;
 
 final class VectorServiceTest extends TestCase
 {
@@ -269,7 +269,7 @@ final class VectorServiceTest extends TestCase
             ->willReturnCallback(
                 static function (string $c, string $i, array $v, string $h, array $m) use (&$storedMetadata): void {
                     $storedMetadata[] = $m;
-                }
+                },
             );
 
         $this->service->embedAndStoreChunked('col', '42', 'Full text.', $strategy, ['sys_language_uid' => 1]);

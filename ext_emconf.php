@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 $EM_CONF[$_EXTKEY] = [
     'title' => 'Smart Search',
     'description' => 'Generic vector embedding, semantic search, and RAG infrastructure for TYPO3.',

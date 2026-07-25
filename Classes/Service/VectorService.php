@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Service;
 
-use Psr\Log\LoggerInterface;
 use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
 use BoehmMatthias\SmartSearch\Repository\VectorRepository;
 use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
+use Psr\Log\LoggerInterface;
 
 class VectorService
 {

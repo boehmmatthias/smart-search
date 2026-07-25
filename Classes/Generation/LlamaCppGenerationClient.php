@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Generation;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 
 class LlamaCppGenerationClient implements GenerationClientInterface
 {
@@ -35,11 +35,11 @@ class LlamaCppGenerationClient implements GenerationClientInterface
                         'max_tokens' => $this->configuration->getGenerationMaxTokens(),
                         'stream' => false,
                     ],
-                    JSON_THROW_ON_ERROR
+                    JSON_THROW_ON_ERROR,
                 ),
                 'timeout' => $this->configuration->getGenerationTimeout(),
                 'http_errors' => false,
-            ]
+            ],
         );
 
         $statusCode = $response->getStatusCode();
@@ -52,7 +52,7 @@ class LlamaCppGenerationClient implements GenerationClientInterface
             ]);
             throw new \RuntimeException(
                 sprintf('Generation server at "%s" returned HTTP %d.', $url, $statusCode),
-                1_700_000_003
+                1_700_000_003,
             );
         }
 
@@ -60,7 +60,7 @@ class LlamaCppGenerationClient implements GenerationClientInterface
             (string) $response->getBody(),
             true,
             512,
-            JSON_THROW_ON_ERROR
+            JSON_THROW_ON_ERROR,
         );
 
         if (!isset($data['choices'][0]['message']['content']) || !is_string($data['choices'][0]['message']['content'])) {
@@ -70,7 +70,7 @@ class LlamaCppGenerationClient implements GenerationClientInterface
             ]);
             throw new \RuntimeException(
                 sprintf('Generation server at "%s" returned an unexpected response structure.', $url),
-                1_700_000_004
+                1_700_000_004,
             );
         }
 

@@ -54,7 +54,7 @@ final class VectorCodec
             throw new \RuntimeException(
                 'Vector column holds JSON text, not packed float32 binary. This row predates the '
                 . 'packed-binary storage format and must be migrated before it can be searched.',
-                1_700_004_001
+                1_700_004_001,
             );
         }
 
@@ -64,9 +64,9 @@ final class VectorCodec
                     'Vector blob is %d bytes, which is not a multiple of %d — it is corrupt or not '
                     . 'packed float32 binary.',
                     strlen($binary),
-                    self::BYTES_PER_FLOAT
+                    self::BYTES_PER_FLOAT,
                 ),
-                1_700_004_002
+                1_700_004_002,
             );
         }
 
@@ -102,14 +102,14 @@ final class VectorCodec
             throw new \RuntimeException(
                 sprintf('Legacy vector is not valid JSON: %s', $e->getMessage()),
                 1_700_004_003,
-                $e
+                $e,
             );
         }
 
         if (!is_array($decoded) || $decoded === []) {
             throw new \RuntimeException(
                 'Legacy vector JSON is not a non-empty array.',
-                1_700_004_004
+                1_700_004_004,
             );
         }
 
@@ -118,7 +118,7 @@ final class VectorCodec
             if (!is_int($component) && !is_float($component)) {
                 throw new \RuntimeException(
                     'Legacy vector JSON contains a non-numeric component.',
-                    1_700_004_005
+                    1_700_004_005,
                 );
             }
             $floats[] = (float) $component;

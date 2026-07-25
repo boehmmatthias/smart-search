@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Generation;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
+use BoehmMatthias\SmartSearch\Generation\LlamaCppGenerationClient;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
@@ -11,8 +13,6 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
-use BoehmMatthias\SmartSearch\Generation\LlamaCppGenerationClient;
 
 final class LlamaCppGenerationClientTest extends TestCase
 {
@@ -44,7 +44,7 @@ final class LlamaCppGenerationClientTest extends TestCase
             'choices' => [[
                 'message' => ['role' => 'assistant', 'content' => 'Paris is the capital of France.'],
             ]],
-        ]);
+        ], JSON_THROW_ON_ERROR);
 
         $this->requestFactory
             ->method('request')
@@ -75,7 +75,7 @@ final class LlamaCppGenerationClientTest extends TestCase
     {
         $this->requestFactory
             ->method('request')
-            ->willReturn($this->makeResponse(200, json_encode(['result' => 'unexpected'])));
+            ->willReturn($this->makeResponse(200, json_encode(['result' => 'unexpected'], JSON_THROW_ON_ERROR)));
 
         $this->logger->expects(self::once())->method('error');
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Upgrades;
 
+use BoehmMatthias\SmartSearch\Repository\VectorCodec;
 use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Doctrine\DBAL\Platforms\PostgreSQLPlatform;
 use Doctrine\DBAL\Platforms\SQLitePlatform;
@@ -14,7 +15,6 @@ use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Upgrades\ChattyInterface;
 use TYPO3\CMS\Core\Upgrades\UpgradeWizardInterface;
-use BoehmMatthias\SmartSearch\Repository\VectorCodec;
 
 /**
  * Converts vectors stored as JSON text into packed IEEE 754 float32 binary.
@@ -116,7 +116,7 @@ final class MigrateJsonVectorsToPackedFloat32 implements UpgradeWizardInterface,
                     self::TABLE,
                     ['vector' => $packed],
                     ['uid' => $uid],
-                    [Connection::PARAM_LOB]
+                    [Connection::PARAM_LOB],
                 );
                 $converted++;
             }
@@ -134,7 +134,7 @@ final class MigrateJsonVectorsToPackedFloat32 implements UpgradeWizardInterface,
             $this->write(sprintf(
                 '%d row(s) could not be converted and were left untouched. They will be skipped '
                 . 'by search and logged at error level; re-embed those records to restore them.',
-                $failed
+                $failed,
             ));
         }
 
@@ -188,9 +188,9 @@ final class MigrateJsonVectorsToPackedFloat32 implements UpgradeWizardInterface,
                 sprintf(
                     'Cannot convert the vector column on database platform "%s". Change it to a '
                     . 'binary type (MEDIUMBLOB or equivalent) manually, then run this wizard again.',
-                    $platform::class
+                    $platform::class,
                 ),
-                1_700_005_001
+                1_700_005_001,
             ),
         };
 
@@ -244,7 +244,7 @@ final class MigrateJsonVectorsToPackedFloat32 implements UpgradeWizardInterface,
     {
         return $queryBuilder->expr()->like(
             'vector',
-            $queryBuilder->createNamedParameter('[%')
+            $queryBuilder->createNamedParameter('[%'),
         );
     }
 

@@ -8,3 +8,5 @@ Thumbs.db
 /.Build/
 /.phpunit.cache/
 /public/
+/CLAUDE.md
+/.claude-audit/

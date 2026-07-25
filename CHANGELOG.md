@@ -45,6 +45,11 @@
 - `findSimilarWithRerank()` accepts `metadataFilters` and forwards them. It previously had no such
   parameter, so switching from `findSimilar()` to the reranked variant silently dropped the filter
   and leaked results across language, site or tenant boundaries.
+- `findByCollection()` streams rows instead of buffering them, and applies metadata filters before
+  unpacking each vector. It previously held every raw row in memory while a second pass built the
+  float arrays, so both representations were alive at peak — roughly 33 KB retained per row at 1536
+  dimensions, exhausting a 128M limit at around 3,400 rows, with chunking multiplying the row count.
+  Filtered-out rows are now never decoded at all.
 - `upsert()` no longer throws a `UniqueConstraintViolationException` into the caller's request
   cycle when two workers index the same record concurrently. The existence check and the insert are
   separate statements with an HTTP embedding round trip between them, so the window is wide; a

@@ -126,18 +126,34 @@ class VectorRepository
     public function findByCollection(string $collection, array $metadataFilters = []): array
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
-        $rows = $queryBuilder
+        $result = $queryBuilder
             ->select('identifier', 'vector', 'metadata')
             ->from(self::TABLE)
             ->where(
                 $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection))
             )
-            ->executeQuery()
-            ->fetchAllAssociative();
+            ->executeQuery();
 
         $entries = [];
-        foreach ($rows as $row) {
+
+        // Streamed rather than buffered. fetchAllAssociative() held every raw row in memory
+        // while a second pass built the float arrays, so both representations were alive at
+        // peak. A float array costs ~16 bytes per element rounded up to the next power of two,
+        // so at 1536 dimensions that is ~33 KB retained per row and a 128M limit is reached
+        // somewhere around 3,400 rows — and chunking multiplies the row count.
+        while (($row = $result->fetchAssociative()) !== false) {
             $identifier = (string) $row['identifier'];
+
+            $meta = $row['metadata'] !== '' && $row['metadata'] !== null
+                ? (array) json_decode((string) $row['metadata'], true, 512, JSON_THROW_ON_ERROR)
+                : [];
+
+            // Filtering before unpacking is the point: metadata filters cannot reduce the rows
+            // the database returns, but they can stop a rejected row ever becoming a float
+            // array. Decoding a JSON object is orders of magnitude cheaper than that.
+            if ($metadataFilters !== [] && !MetadataFilter::matches($meta, $metadataFilters)) {
+                continue;
+            }
 
             // A row that cannot be decoded is dropped rather than allowed to poison the
             // result set with plausible-looking garbage. Logged at error level, because the
@@ -155,10 +171,6 @@ class VectorRepository
                 continue;
             }
 
-            $meta = $row['metadata'] !== '' && $row['metadata'] !== null
-                ? (array) json_decode((string) $row['metadata'], true, 512, JSON_THROW_ON_ERROR)
-                : [];
-
             $entries[] = [
                 'identifier' => $identifier,
                 'vector' => $vector,
@@ -166,14 +178,7 @@ class VectorRepository
             ];
         }
 
-        if (empty($metadataFilters)) {
-            return $entries;
-        }
-
-        return array_values(array_filter(
-            $entries,
-            static fn(array $entry): bool => MetadataFilter::matches($entry['metadata'], $metadataFilters)
-        ));
+        return $entries;
     }
 
     public function deleteByIdentifier(string $collection, string $identifier): void

@@ -51,6 +51,18 @@
 
 ### Added
 
+- `VectorService::deleteChunked()` — removes every chunk of a chunked document. There was
+  previously **no working delete path for chunked content**: the documented removal call matches
+  one exact identifier, and a chunked document has no row under its own identifier, so deleting the
+  source record removed nothing and left orphans that kept surfacing in search pointing at a record
+  that no longer existed.
+- `VectorService::delete()` — mirrors the repository call so consumers can stay on the service.
+- `findSimilar(..., collapseChunks: true)` — groups chunk hits back to their parent document,
+  keeping each parent's best-scoring chunk, and returns parent identifiers. Chunks of one document
+  are near-duplicates by construction, so without it a single long document could occupy every slot
+  and turn `topK: 5` into five passages from one source. Opt-in; the default is unchanged.
+- `VectorService::CHUNK_SEPARATOR` — the `_chunk_` separator consumers `explode()` on, now a named
+  constant rather than a repeated literal.
 - `VectorRepository::updateMetadata()` and `findContentHashAndMetadata()`.
 
 ### Changed

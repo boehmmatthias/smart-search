@@ -336,6 +336,94 @@ final class VectorServiceTest extends TestCase
         $this->service->embedAndStore('col', 1, $text, ['sys_language_uid' => 1]);
     }
 
+    // --- chunk-aware read and delete ---
+
+    #[Test]
+    public function findSimilarLetsOneDocumentFillTopKWhenChunksAreNotCollapsed(): void
+    {
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => 'doc1_chunk_0', 'vector' => [1.0, 0.0]],
+            ['identifier' => 'doc1_chunk_1', 'vector' => [0.99, 0.01]],
+            ['identifier' => 'doc1_chunk_2', 'vector' => [0.98, 0.02]],
+            ['identifier' => 'doc2_chunk_0', 'vector' => [0.5, 0.5]],
+        ]);
+
+        $results = $this->service->findSimilar('col', 'query', 3);
+
+        // Documents the existing behaviour: three near-duplicate passages from one source.
+        self::assertSame(['doc1_chunk_0', 'doc1_chunk_1', 'doc1_chunk_2'], array_column($results, 'identifier'));
+    }
+
+    #[Test]
+    public function collapseChunksKeepsTheBestChunkPerParentAndReturnsParentIdentifiers(): void
+    {
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => 'doc1_chunk_0', 'vector' => [0.98, 0.02]],
+            ['identifier' => 'doc1_chunk_1', 'vector' => [1.0, 0.0]],
+            ['identifier' => 'doc1_chunk_2', 'vector' => [0.9, 0.1]],
+            ['identifier' => 'doc2_chunk_0', 'vector' => [0.5, 0.5]],
+        ]);
+
+        $results = $this->service->findSimilar('col', 'query', 3, collapseChunks: true);
+
+        self::assertSame(['doc1', 'doc2'], array_column($results, 'identifier'));
+        // doc1's best chunk is chunk_1, an exact match.
+        self::assertEqualsWithDelta(1.0, $results[0]['score'], 0.0001);
+    }
+
+    #[Test]
+    public function collapseChunksLeavesUnchunkedIdentifiersAlone(): void
+    {
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => '42', 'vector' => [1.0, 0.0]],
+        ]);
+
+        $results = $this->service->findSimilar('col', 'query', 5, collapseChunks: true);
+
+        self::assertSame(['42'], array_column($results, 'identifier'));
+    }
+
+    #[Test]
+    public function deleteChunkedRemovesOnlyThisDocumentsChunks(): void
+    {
+        $this->vectorRepository
+            ->method('findIdentifiersByPrefix')
+            ->with('col', 'faq_chunk_')
+            ->willReturn([
+                'faq_chunk_0',
+                'faq_chunk_1',
+                'faq_chunk_overview',    // a standalone document, not a chunk of faq
+                'faq_chunk_1_chunk_0',   // a chunk of the document "faq_chunk_1"
+                'Faq_chunk_2',           // a different, case-differing document
+            ]);
+
+        $deleted = [];
+        $this->vectorRepository
+            ->method('deleteByIdentifier')
+            ->willReturnCallback(static function (string $c, string $i) use (&$deleted): void {
+                $deleted[] = $i;
+            });
+
+        $count = $this->service->deleteChunked('col', 'faq');
+
+        self::assertSame(['faq_chunk_0', 'faq_chunk_1'], $deleted);
+        self::assertSame(2, $count);
+    }
+
+    #[Test]
+    public function deleteRemovesASingleEntry(): void
+    {
+        $this->vectorRepository
+            ->expects(self::once())
+            ->method('deleteByIdentifier')
+            ->with('col', '42');
+
+        $this->service->delete('col', 42);
+    }
+
     #[Test]
     public function findSimilarResultsHaveIdentifierAndScoreKeys(): void
     {

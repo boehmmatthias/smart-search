@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- `VectorService::embedAndStoreChunked()` no longer deletes vectors belonging to other
+  documents. The stale-chunk sweep deleted everything matching
+  `LIKE '{identifier}_chunk_%'`, which also matches standalone documents that merely share
+  the prefix (e.g. `faq_chunk_overview` when re-chunking `faq`) and the chunks of a document
+  named `{identifier}_chunk_{n}`. Deletion is now restricted to identifiers matching
+  `{identifier}_chunk_{int}` exactly. This also fixes deletion of case-differing documents on
+  PostgreSQL and SQLite, where `LIKE` is case-insensitive but the unique index is not.
+
 ## [0.1.0] - 2026-04-20
 
 ### Initial release

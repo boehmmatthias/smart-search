@@ -75,10 +75,26 @@ class VectorService
             $this->embedAndStore($collection, $chunkIdentifier, $chunk);
         }
 
-        // Remove stale chunks from a previous version of this document
+        // Remove stale chunks from a previous version of this document.
+        //
+        // The prefix query is deliberately wider than what we may delete. It matches any
+        // identifier starting with "{$identifier}_chunk_", which includes documents that
+        // merely share that prefix — a standalone "faq_chunk_overview", or the chunks of a
+        // document named "faq_chunk_1" — none of which are ours to remove. It is also
+        // case-insensitive on PostgreSQL (like() becomes ILIKE) and SQLite, while the unique
+        // index on those platforms is case-sensitive, so it can return chunks of a separate
+        // "Faq" document too.
+        //
+        // Only "{$identifier}_chunk_{int}", matched case-sensitively, is a chunk of this
+        // document. A document whose own identifier is literally "{$identifier}_chunk_{int}"
+        // remains ambiguous and is not distinguishable here.
         $prefix = $identifier . '_chunk_';
+        $ownChunkPattern = '/^' . preg_quote($prefix, '/') . '\d+$/';
         $allInCollection = $this->vectorRepository->findIdentifiersByPrefix($collection, $prefix);
         foreach ($allInCollection as $existing) {
+            if (preg_match($ownChunkPattern, $existing) !== 1) {
+                continue;
+            }
             if (!in_array($existing, $storedChunkIdentifiers, true)) {
                 $this->vectorRepository->deleteByIdentifier($collection, $existing);
                 $this->logger->debug('Deleted stale chunk', [

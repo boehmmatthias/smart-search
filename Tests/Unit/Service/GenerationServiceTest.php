@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Service;
 
-use PHPUnit\Framework\Attributes\Test;
-use PHPUnit\Framework\MockObject\MockObject;
-use PHPUnit\Framework\TestCase;
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Generation\GenerationClientInterface;
 use BoehmMatthias\SmartSearch\Service\GenerationService;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\TestCase;
 
 final class GenerationServiceTest extends TestCase
 {

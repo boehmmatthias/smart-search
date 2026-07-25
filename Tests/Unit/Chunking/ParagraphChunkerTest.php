@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Chunking;
 
+use BoehmMatthias\SmartSearch\Chunking\ParagraphChunker;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use BoehmMatthias\SmartSearch\Chunking\ParagraphChunker;
 
 final class ParagraphChunkerTest extends TestCase
 {

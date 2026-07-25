@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Tests\Unit\Service;
 
+use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
+use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
+use BoehmMatthias\SmartSearch\Repository\VectorRepository;
+use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
+use BoehmMatthias\SmartSearch\Service\VectorService;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
-use BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface;
-use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
-use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
-use BoehmMatthias\SmartSearch\Repository\VectorRepository;
-use BoehmMatthias\SmartSearch\Service\VectorService;
 
 final class VectorServiceTest extends TestCase
 {
@@ -77,9 +77,9 @@ final class VectorServiceTest extends TestCase
         $hash = md5($text);
 
         $this->vectorRepository
-            ->method('findContentHash')
+            ->method('findContentHashAndMetadata')
             ->with('my-collection', '1')
-            ->willReturn($hash);
+            ->willReturn(['hash' => $hash, 'metadata' => []]);
 
         $this->embeddingClient->expects(self::never())->method('embed');
         $this->vectorRepository->expects(self::never())->method('upsert');
@@ -91,19 +91,22 @@ final class VectorServiceTest extends TestCase
     public function embedAndStoreCallsEmbedWhenHashDiffers(): void
     {
         $this->vectorRepository
-            ->method('findContentHash')
-            ->willReturn('old_hash');
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => 'old_hash', 'metadata' => []]);
 
         $this->embeddingClient
             ->expects(self::once())
             ->method('embed')
             ->willReturn([0.1, 0.2]);
 
+        // Asserting the arguments, not merely that upsert happened. The argument-blind
+        // version of this test is why chunked storage could silently drop metadata.
         $this->vectorRepository
             ->expects(self::once())
-            ->method('upsert');
+            ->method('upsert')
+            ->with('my-collection', '1', [0.1, 0.2], md5('Some text'), ['site' => 'main']);
 
-        $this->service->embedAndStore('my-collection', 1, 'Some text');
+        $this->service->embedAndStore('my-collection', 1, 'Some text', ['site' => 'main']);
     }
 
     #[Test]
@@ -245,6 +248,180 @@ final class VectorServiceTest extends TestCase
         $this->service->embedAndStoreChunked('col', '42', 'Full text.', $strategy);
 
         self::assertSame(['42_chunk_1', '42_chunk_2'], $deletedIdentifiers);
+    }
+
+    // --- metadata passthrough ---
+
+    #[Test]
+    public function embedAndStoreChunkedStoresMetadataOnEveryChunk(): void
+    {
+        $strategy = $this->createMock(ChunkingStrategyInterface::class);
+        $strategy->method('chunk')->willReturn(['First.', 'Second.']);
+
+        $this->vectorRepository->method('findContentHashAndMetadata')->willReturn(null);
+        $this->embeddingClient->method('embed')->willReturn([0.1]);
+        $this->vectorRepository->method('findIdentifiersByPrefix')->willReturn([]);
+
+        $storedMetadata = [];
+        $this->vectorRepository
+            ->expects(self::exactly(2))
+            ->method('upsert')
+            ->willReturnCallback(
+                static function (string $c, string $i, array $v, string $h, array $m) use (&$storedMetadata): void {
+                    $storedMetadata[] = $m;
+                },
+            );
+
+        $this->service->embedAndStoreChunked('col', '42', 'Full text.', $strategy, ['sys_language_uid' => 1]);
+
+        self::assertSame([['sys_language_uid' => 1], ['sys_language_uid' => 1]], $storedMetadata);
+    }
+
+    #[Test]
+    public function findSimilarWithRerankForwardsMetadataFiltersToRetrieval(): void
+    {
+        $reranker = $this->createMock(RerankerInterface::class);
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $reranker->method('rerank')->willReturnArgument(1);
+
+        $this->vectorRepository
+            ->expects(self::once())
+            ->method('findByCollection')
+            ->with('col', ['sys_language_uid' => 1])
+            ->willReturn([['identifier' => 'a', 'vector' => [1.0, 0.0]]]);
+
+        $this->service->findSimilarWithRerank(
+            'col',
+            'query',
+            $reranker,
+            metadataFilters: ['sys_language_uid' => 1],
+        );
+    }
+
+    #[Test]
+    public function embedAndStoreUpdatesMetadataWhenOnlyTheMetadataChanged(): void
+    {
+        $text = 'Unchanged text';
+
+        $this->vectorRepository
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => md5($text), 'metadata' => ['sys_language_uid' => 1]]);
+
+        // The text is unchanged, so nothing should be re-embedded or re-upserted...
+        $this->embeddingClient->expects(self::never())->method('embed');
+        $this->vectorRepository->expects(self::never())->method('upsert');
+
+        // ...but the drifted metadata must still be written.
+        $this->vectorRepository
+            ->expects(self::once())
+            ->method('updateMetadata')
+            ->with('col', '1', ['sys_language_uid' => 2]);
+
+        $this->service->embedAndStore('col', 1, $text, ['sys_language_uid' => 2]);
+    }
+
+    #[Test]
+    public function embedAndStoreWritesNothingWhenTextAndMetadataAreBothUnchanged(): void
+    {
+        $text = 'Unchanged text';
+
+        $this->vectorRepository
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => md5($text), 'metadata' => ['sys_language_uid' => 1]]);
+
+        $this->embeddingClient->expects(self::never())->method('embed');
+        $this->vectorRepository->expects(self::never())->method('upsert');
+        $this->vectorRepository->expects(self::never())->method('updateMetadata');
+
+        $this->service->embedAndStore('col', 1, $text, ['sys_language_uid' => 1]);
+    }
+
+    // --- chunk-aware read and delete ---
+
+    #[Test]
+    public function findSimilarLetsOneDocumentFillTopKWhenChunksAreNotCollapsed(): void
+    {
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => 'doc1_chunk_0', 'vector' => [1.0, 0.0]],
+            ['identifier' => 'doc1_chunk_1', 'vector' => [0.99, 0.01]],
+            ['identifier' => 'doc1_chunk_2', 'vector' => [0.98, 0.02]],
+            ['identifier' => 'doc2_chunk_0', 'vector' => [0.5, 0.5]],
+        ]);
+
+        $results = $this->service->findSimilar('col', 'query', 3);
+
+        // Documents the existing behaviour: three near-duplicate passages from one source.
+        self::assertSame(['doc1_chunk_0', 'doc1_chunk_1', 'doc1_chunk_2'], array_column($results, 'identifier'));
+    }
+
+    #[Test]
+    public function collapseChunksKeepsTheBestChunkPerParentAndReturnsParentIdentifiers(): void
+    {
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => 'doc1_chunk_0', 'vector' => [0.98, 0.02]],
+            ['identifier' => 'doc1_chunk_1', 'vector' => [1.0, 0.0]],
+            ['identifier' => 'doc1_chunk_2', 'vector' => [0.9, 0.1]],
+            ['identifier' => 'doc2_chunk_0', 'vector' => [0.5, 0.5]],
+        ]);
+
+        $results = $this->service->findSimilar('col', 'query', 3, collapseChunks: true);
+
+        self::assertSame(['doc1', 'doc2'], array_column($results, 'identifier'));
+        // doc1's best chunk is chunk_1, an exact match.
+        self::assertEqualsWithDelta(1.0, $results[0]['score'], 0.0001);
+    }
+
+    #[Test]
+    public function collapseChunksLeavesUnchunkedIdentifiersAlone(): void
+    {
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => '42', 'vector' => [1.0, 0.0]],
+        ]);
+
+        $results = $this->service->findSimilar('col', 'query', 5, collapseChunks: true);
+
+        self::assertSame(['42'], array_column($results, 'identifier'));
+    }
+
+    #[Test]
+    public function deleteChunkedRemovesOnlyThisDocumentsChunks(): void
+    {
+        $this->vectorRepository
+            ->method('findIdentifiersByPrefix')
+            ->with('col', 'faq_chunk_')
+            ->willReturn([
+                'faq_chunk_0',
+                'faq_chunk_1',
+                'faq_chunk_overview',    // a standalone document, not a chunk of faq
+                'faq_chunk_1_chunk_0',   // a chunk of the document "faq_chunk_1"
+                'Faq_chunk_2',           // a different, case-differing document
+            ]);
+
+        $deleted = [];
+        $this->vectorRepository
+            ->method('deleteByIdentifier')
+            ->willReturnCallback(static function (string $c, string $i) use (&$deleted): void {
+                $deleted[] = $i;
+            });
+
+        $count = $this->service->deleteChunked('col', 'faq');
+
+        self::assertSame(['faq_chunk_0', 'faq_chunk_1'], $deleted);
+        self::assertSame(2, $count);
+    }
+
+    #[Test]
+    public function deleteRemovesASingleEntry(): void
+    {
+        $this->vectorRepository
+            ->expects(self::once())
+            ->method('deleteByIdentifier')
+            ->with('col', '42');
+
+        $this->service->delete('col', 42);
     }
 
     #[Test]

@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 $EM_CONF[$_EXTKEY] = [
     'title' => 'Smart Search',
     'description' => 'Generic vector embedding, semantic search, and RAG infrastructure for TYPO3.',
@@ -8,7 +10,7 @@ $EM_CONF[$_EXTKEY] = [
     'author_email' => 'me@matthiasboehm.at',
     'author_company' => '',
     'state' => 'alpha',
-    'version' => '0.1.0',
+    'version' => '0.2.0',
     'clearCacheOnLoad' => true,
     'constraints' => [
         'depends' => [

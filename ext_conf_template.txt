@@ -1,8 +1,8 @@
 # cat=LLM/basic; type=string; label=Embedding server URL (llama-server --embedding, default port 8080)
-embeddingServerUrl = http://host.docker.internal:8080
+embeddingServerUrl = http://localhost:8080
 
 # cat=LLM/basic; type=string; label=Generation server URL (llama-server for chat, default port 8081)
-generationServerUrl = http://host.docker.internal:8081
+generationServerUrl = http://localhost:8081
 
 # cat=LLM/basic; type=integer; label=Max tokens for generated answer
 generationMaxTokens = 512
@@ -13,13 +13,13 @@ generationTimeout = 300
 # cat=LLM/basic; type=integer; label=Maximum characters of text sent to the embedding server (keep in sync with --ctx-size; ~4 chars per token for typical prose)
 embeddingContextLength = 6000
 
-# cat=LLM/RAG; type=integer; label=Number of top documents to retrieve for RAG context
+# cat=LLM/RAG; type=integer; label=Number of top documents to retrieve for RAG context (advisory: read and applied by consuming extensions, not by smart_search)
 ragTopK = 5
 
-# cat=LLM/RAG; type=integer; label=Maximum characters of document content included per RAG context block
+# cat=LLM/RAG; type=integer; label=Maximum characters of document content included per RAG context block (advisory: read and applied by consuming extensions, not by smart_search)
 documentContextLength = 800
 
-# cat=LLM/RAG; type=string; label=Minimum cosine similarity score (0.0–1.0) for semantic results; below this falls back to keyword search
+# cat=LLM/RAG; type=string; label=Minimum cosine similarity score (0.0-1.0) for semantic results (advisory: read and applied by consuming extensions, not by smart_search)
 semanticThreshold = 0.30
 
 # cat=LLM/RAG; type=text; label=Custom system prompt for the generation service (leave empty to use the built-in default)

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Embedding;
 
+use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Http\RequestFactory;
-use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 
 class LlamaCppEmbeddingClient implements EmbeddingClientInterface
 {
@@ -24,36 +24,43 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
     {
         $url = $this->configuration->getEmbeddingServerUrl() . '/embedding';
 
-        // Retry with progressively shorter text if the server rejects the input
-        // as too long (HTTP 400). Each attempt halves the text.
-        $response = null;
-        for ($attempt = 0; $attempt < 4; $attempt++) {
-            $response = $this->requestFactory->request(
-                $url,
-                'POST',
-                [
-                    'headers' => ['Content-Type' => 'application/json'],
-                    'body' => json_encode(['content' => $text], JSON_THROW_ON_ERROR),
-                    'http_errors' => false,
-                ]
-            );
-
-            $statusCode = $response->getStatusCode();
-
-            if ($statusCode !== 400) {
-                break;
-            }
-
-            $this->logger->warning('Embedding server rejected input as too long (HTTP 400), retrying with halved text', [
-                'url' => $url,
-                'attempt' => $attempt + 1,
-                'text_length' => mb_strlen($text),
-            ]);
-
-            $text = mb_substr($text, 0, (int) (mb_strlen($text) / 2));
-        }
+        $response = $this->requestFactory->request(
+            $url,
+            'POST',
+            [
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => json_encode(['content' => $text], JSON_THROW_ON_ERROR),
+                'http_errors' => false,
+            ],
+        );
 
         $statusCode = $response->getStatusCode();
+
+        // A 400 means the server rejected the input, in practice because it is longer than the
+        // model's context window. This used to halve the text and retry up to four times, which
+        // produced a vector for as little as an eighth of the document. The caller hashes the
+        // *full* text before calling, so that partial vector was stored against the full-text
+        // hash and every later embedAndStore() short-circuited on it — the row could never be
+        // repaired, not even after raising --ctx-size. Failing loudly is the only honest option;
+        // embeddingContextLength and the chunking strategies are the supported ways to fit text
+        // into the window.
+        if ($statusCode === 400) {
+            $this->logger->error('Embedding server rejected the input (HTTP 400)', [
+                'url' => $url,
+                'text_length' => mb_strlen($text),
+            ]);
+            throw new \RuntimeException(
+                sprintf(
+                    'Embedding server at "%s" rejected %d characters of input. Lower the '
+                    . 'embeddingContextLength setting to match the model\'s context window, or '
+                    . 'split the text with a ChunkingStrategyInterface.',
+                    $url,
+                    mb_strlen($text),
+                ),
+                1_700_000_003,
+            );
+        }
+
         if ($statusCode !== 200) {
             $body = (string) $response->getBody();
             $this->logger->error('Embedding server returned unexpected status code', [
@@ -63,7 +70,7 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
             ]);
             throw new \RuntimeException(
                 sprintf('Embedding server at "%s" returned HTTP %d.', $url, $statusCode),
-                1_700_000_001
+                1_700_000_001,
             );
         }
 
@@ -71,17 +78,25 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
             (string) $response->getBody(),
             true,
             512,
-            JSON_THROW_ON_ERROR
+            JSON_THROW_ON_ERROR,
         );
 
-        if (!isset($data[0]['embedding'][0]) || !is_array($data[0]['embedding'][0])) {
+        // The emptiness check matters as much as the shape check. A payload of
+        // [{"embedding":[[]]}] satisfies isset() and is_array(), and returning [] from it is not
+        // harmless: an empty stored vector packs to a zero-length blob, and if the query vector
+        // is also empty the dimension guard passes, cosineSimilarity([], []) returns 0.0 for
+        // every row, and array_slice hands back the first topK rows presented as ranked hits.
+        if (!isset($data[0]['embedding'][0])
+            || !is_array($data[0]['embedding'][0])
+            || $data[0]['embedding'][0] === []
+        ) {
             $this->logger->error('Embedding server response has unexpected structure', [
                 'url' => $url,
                 'response_keys' => is_array($data) ? array_keys($data) : gettype($data),
             ]);
             throw new \RuntimeException(
                 sprintf('Embedding server at "%s" returned an unexpected response structure.', $url),
-                1_700_000_002
+                1_700_000_002,
             );
         }
 

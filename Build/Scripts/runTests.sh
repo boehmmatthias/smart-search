@@ -11,7 +11,7 @@
 #   Build/Scripts/runTests.sh -s unit          # Run unit tests
 #   Build/Scripts/runTests.sh -s phpstan       # Run static analysis
 #   Build/Scripts/runTests.sh -s cgl           # Run coding standards check
-#   Build/Scripts/runTests.sh -s cgl -fix      # Run coding standards check and fix them automatically
+#   Build/Scripts/runTests.sh -s cgl-fix       # Run coding standards check and fix them automatically
 #   Build/Scripts/runTests.sh -x               # Enable Xdebug
 #
 
@@ -23,7 +23,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 # Defaults
 PHP_VERSION="8.4"
 TEST_SUITE="unit"
-EXTRA_ARGS=""
+EXTRA_ARGS=()
 XDEBUG=""
 CI=${CI:-false}
 
@@ -36,7 +36,7 @@ usage() {
 Usage: $(basename "$0") [options] [-- phpunit-args]
 
 Options:
-    -s <suite>    Test suite: unit (default), functional, phpstan, cgl, lint
+    -s <suite>    Test suite: unit (default), phpstan, cgl, cgl-fix, lint
     -p <version>  PHP version: 8.4 (default)
     -x            Enable Xdebug
     -h            Show this help
@@ -44,9 +44,9 @@ Options:
 Examples:
     $(basename "$0")                           Run unit tests
     $(basename "$0") -s phpstan                Run PHPStan
-    $(basename "$0") -- --filter BudgetService Run specific test
+    $(basename "$0") -- --filter VectorService Run specific test
 EOF
-    exit 0
+    exit "${1:-0}"
 }
 
 while getopts "s:p:xh" opt; do
@@ -54,12 +54,14 @@ while getopts "s:p:xh" opt; do
         s) TEST_SUITE="${OPTARG}" ;;
         p) PHP_VERSION="${OPTARG}" ;;
         x) XDEBUG="-e XDEBUG_MODE=debug -e XDEBUG_CONFIG=client_host=host.docker.internal" ;;
-        h) usage ;;
-        *) usage ;;
+        h) usage 0 ;;
+        *) usage 1 ;;
     esac
 done
 shift $((OPTIND - 1))
-EXTRA_ARGS="$*"
+# Array, not a string: "$*" collapsed the arguments and was then expanded unquoted, so
+# `-- --filter "Vector Service"` was split into two arguments.
+EXTRA_ARGS=("$@")
 
 PHP_IMAGE="${IMAGE_PREFIX}$(echo "${PHP_VERSION}" | tr -d '.'):${IMAGE_TAG}"
 
@@ -84,7 +86,7 @@ case ${TEST_SUITE} in
             -w /app \
             ${XDEBUG} \
             "${PHP_IMAGE}" \
-            .Build/vendor/bin/phpunit -c Build/phpunit/UnitTests.xml ${EXTRA_ARGS}
+            .Build/vendor/bin/phpunit -c Build/phpunit/UnitTests.xml ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
         EXIT_CODE=$?
         set -e
         ;;
@@ -134,7 +136,7 @@ case ${TEST_SUITE} in
         ;;
     *)
         echo "Unknown suite: ${TEST_SUITE}"
-        usage
+        usage 1
         ;;
 esac
 

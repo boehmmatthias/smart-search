@@ -36,9 +36,21 @@ class SmartSearchConfiguration
         return (int) ($this->config['generationTimeout'] ?? 300);
     }
 
+    /**
+     * Maximum characters of text sent to the embedding server.
+     *
+     * Clamped to a positive value. The `??` fallback only fires when the key is absent, but the
+     * Install Tool stores every setting as a string — so clearing the field leaves '' and
+     * (int) '' is 0. That made normalise() truncate every document to the empty string:
+     * identical vectors throughout the collection, every content_hash equal to the MD5 of '',
+     * and arbitrary documents returned at indistinguishable scores. A negative value was worse
+     * still, because mb_substr($text, 0, -50) strips the tail instead of truncating.
+     */
     public function getEmbeddingContextLength(): int
     {
-        return (int) ($this->config['embeddingContextLength'] ?? 6000);
+        $configured = (int) ($this->config['embeddingContextLength'] ?? 6000);
+
+        return $configured > 0 ? $configured : 6000;
     }
 
     public function getRagTopK(): int

@@ -120,14 +120,10 @@ class VectorRepository
             return $entries;
         }
 
-        return array_values(array_filter($entries, static function (array $entry) use ($metadataFilters): bool {
-            foreach ($metadataFilters as $key => $value) {
-                if (!isset($entry['metadata'][$key]) || $entry['metadata'][$key] != $value) {
-                    return false;
-                }
-            }
-            return true;
-        }));
+        return array_values(array_filter(
+            $entries,
+            static fn(array $entry): bool => MetadataFilter::matches($entry['metadata'], $metadataFilters)
+        ));
     }
 
     public function deleteByIdentifier(string $collection, string $identifier): void

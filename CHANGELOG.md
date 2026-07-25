@@ -17,6 +17,14 @@
 
 ### Changed
 
+- **Breaking:** metadata filters now compare strictly. The previous loose `!=` inherited PHP's
+  coercion rules, under which a bool operand casts the other side to bool — so
+  `['published' => true]` matched values stored as `"no"`, `"0.0"`, `42` or `"anything"`, and
+  numeric strings compared numerically so `['site' => '7']` matched `'007'`. Filters are the only
+  thing separating languages, sites or tenants that share a collection, so this matched far too
+  much and did so silently. `int` and `float` are still treated as one numeric domain (a filter of
+  `1` matches a stored `1.0`); everything else must match exactly, so `'1'` no longer matches `1`.
+  Callers passing filter values whose type differs from what was stored must correct the type.
 - **Breaking:** `metadata` is now `TEXT DEFAULT NULL` instead of `TEXT NOT NULL`. The previous
   definition could not be applied to an existing table: PostgreSQL rejects it outright (`column
   "metadata" contains null values`), and `TEXT NOT NULL DEFAULT ''` is not a valid alternative

@@ -81,6 +81,25 @@
 
 ### Changed
 
+- **Breaking:** `embeddingServerUrl` and `generationServerUrl` now default to `http://localhost:8080`
+  and `:8081` in `ext_conf_template.txt`, matching what `SmartSearchConfiguration` and the README
+  always claimed. The shipped template said `host.docker.internal`, which does not resolve outside a
+  Docker Desktop container — so a fresh non-Docker install reported both servers down while the
+  README told the user to `curl localhost`, which succeeded, pointing them at the wrong cause.
+  Installs that never saved the setting will pick up the new default.
+- `RerankerInterface` has an explicit `Services.yaml` alias. It previously resolved only through
+  Symfony's singly-implemented-interface rule, which would have vanished the moment a second
+  implementation existed — taking down the whole container, not just this extension.
+- Documentation: the README documented `LONGTEXT` JSON storage, claimed the extension had "no
+  metadata fields", and described none of chunking, metadata filtering, reranking or `systemPrompt`.
+  Its Contributing commands referenced `packages/smart-search/…` paths and a `vendor/` directory,
+  neither of which exists. Known Limitations has been rewritten against what the code actually does.
+- `ragTopK`, `documentContextLength` and `semanticThreshold` are now labelled advisory in both the
+  README and `ext_conf_template.txt`. Nothing in the extension reads them; they exist for consuming
+  extensions to apply.
+- `EmbeddingClientInterface` and `GenerationClientInterface` document that implementations must throw
+  rather than return an empty result. An empty vector is stored as a zero-length blob and then scores
+  `0.0` against everything, which is indistinguishable from a genuinely unrelated document.
 - **Breaking:** metadata filters now compare strictly. The previous loose `!=` inherited PHP's
   coercion rules, under which a bool operand casts the other side to bool — so
   `['published' => true]` matched values stored as `"no"`, `"0.0"`, `42` or `"anything"`, and

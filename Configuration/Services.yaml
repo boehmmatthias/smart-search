@@ -14,3 +14,15 @@ services:
 
   BoehmMatthias\SmartSearch\Generation\GenerationClientInterface:
     alias: BoehmMatthias\SmartSearch\Generation\LlamaCppGenerationClient
+
+  # Declared explicitly rather than left to Symfony's singly-implemented-interface rule.
+  # That rule works today only because LlmReranker is the sole implementation — the moment a
+  # second one exists anywhere under Classes/, the implicit alias disappears and every consumer
+  # type-hinting RerankerInterface fails at container compile time, which takes down the site
+  # rather than just the extension.
+  #
+  # ChunkingStrategyInterface intentionally has no alias: ParagraphChunker and
+  # SlidingWindowChunker are equal-standing choices with no sensible default, so consumers pass
+  # the strategy they want to embedAndStoreChunked() explicitly.
+  BoehmMatthias\SmartSearch\Reranking\RerankerInterface:
+    alias: BoehmMatthias\SmartSearch\Reranking\LlmReranker

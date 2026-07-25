@@ -19,6 +19,9 @@
 - **Semantic search** — find the most relevant stored entries for a natural-language query using cosine similarity, ranked by score.
 - **RAG generation** — supply pre-formatted context blocks and get a grounded LLM answer that cites its sources.
 - **Pluggable backends** — ships llama.cpp clients for both embedding and generation; swap in OpenAI, Ollama, or any other HTTP-based model by implementing two small interfaces.
+- **Text chunking** — split long documents with `ParagraphChunker` or `SlidingWindowChunker`, or your own `ChunkingStrategyInterface`. Chunks are stored, updated and removed as a set.
+- **Metadata filtering** — store scalar key-value pairs alongside each vector (language, site, tenant, author) and restrict searches to entries matching all of them.
+- **Reranking** — widen retrieval and reorder the candidates through a `RerankerInterface` for higher precision.
 - **Collection scoping** — multiple extensions can share the same table using distinct collection names without collision.
 - **PSR-3 logging** — all HTTP errors and unexpected responses are logged to the TYPO3 log.
 
@@ -113,7 +116,10 @@ All settings are available under **Admin Tools → Settings → Extension Config
 | `embeddingContextLength` | integer | `6000` | Maximum characters of text passed to the embedding server. Keep in sync with the model's `--ctx-size` (roughly 4 chars per token for typical prose). |
 | `ragTopK` | integer | `5` | Number of top-scoring documents retrieved and passed as context for RAG generation. |
 | `documentContextLength` | integer | `800` | Maximum characters of document content included per context block in RAG requests. |
-| `semanticThreshold` | float | `0.30` | Minimum cosine similarity score (0.0–1.0) to treat a result as a semantic match. Results below this threshold can be filtered by the consuming extension. |
+| `semanticThreshold` | float | `0.30` | Minimum cosine similarity score (0.0–1.0) to treat a result as a semantic match. |
+| `systemPrompt` | text | *(empty)* | Overrides the built-in RAG system prompt. Leave empty to use the default. A per-call `systemPrompt` argument to `generate()` takes precedence over this. |
+
+`ragTopK`, `documentContextLength` and `semanticThreshold` are **advisory**: `smart_search` does not apply them itself. They exist so a consuming extension and its integrator have one agreed place to configure retrieval policy — read them via `SmartSearchConfiguration` and apply them in your own code. Setting `semanticThreshold` will not change what `findSimilar()` returns.
 
 ---
 
@@ -147,6 +153,43 @@ class MyEventListener
 
 The call is **idempotent** — if the text has not changed since the last call, the embedding server is not contacted and the database is not written to.
 
+### Storing metadata
+
+Pass scalar key-value pairs to keep entries separable later — language, site, tenant, author:
+
+```php
+$this->vectorService->embedAndStore(
+    collection: 'my-extension-articles',
+    identifier: $record->getUid(),
+    text: $text,
+    metadata: ['sys_language_uid' => $record->getLanguageUid(), 'site' => 'main'],
+);
+```
+
+Metadata is compared **strictly**, so the filter value's type must match what was stored: a filter of `'1'` will not match a stored integer `1`. Integers and floats are interchangeable.
+
+Metadata is not part of the change-detection hash, so calling `embedAndStore()` again with the same text but different metadata updates the metadata without re-embedding.
+
+### Long documents: chunking
+
+```php
+use BoehmMatthias\SmartSearch\Chunking\ParagraphChunker;
+
+$this->vectorService->embedAndStoreChunked(
+    collection: 'my-extension-articles',
+    identifier: $record->getUid(),
+    text: $text,
+    strategy: new ParagraphChunker(maxChars: 1500),
+    metadata: ['sys_language_uid' => 1],
+);
+```
+
+Chunks are stored as `"{identifier}_chunk_{n}"`. Chunks that disappear because the document got shorter are removed automatically. Use `deleteChunked()` to remove a chunked document — `delete()` will not find it, because there is no row under the bare identifier:
+
+```php
+$this->vectorService->deleteChunked(collection: 'my-extension-articles', identifier: $uid);
+```
+
 ### Semantic search
 
 ```php
@@ -154,6 +197,8 @@ $hits = $this->vectorService->findSimilar(
     collection: 'my-extension-articles',
     query: 'how do I configure caching?',
     topK: 5,
+    metadataFilters: ['sys_language_uid' => 1],
+    collapseChunks: true,
 );
 
 // Returns: [['identifier' => '42', 'score' => 0.87], ['identifier' => '7', 'score' => 0.74], ...]
@@ -163,6 +208,25 @@ foreach ($hits as $hit) {
     // filter by threshold if needed: if ($hit['score'] < 0.30) continue;
 }
 ```
+
+`collapseChunks: true` groups chunk hits back to their parent document and returns parent identifiers, keeping each parent's best-scoring chunk. Without it, one long document's chunks can fill `topK` on their own.
+
+### Reranking
+
+Widen retrieval, then reorder the candidates with a more precise signal:
+
+```php
+$hits = $this->vectorService->findSimilarWithRerank(
+    collection: 'my-extension-articles',
+    query: 'how do I configure caching?',
+    reranker: $this->reranker,       // RerankerInterface, autowired to LlmReranker
+    topK: 5,
+    rerankK: 20,
+    metadataFilters: ['sys_language_uid' => 1],
+);
+```
+
+The result is ordered by the reranker's judgement of relevance, **not** by descending `score` — `score` stays the cosine similarity so it remains comparable with `findSimilar()`. Note that the bundled `LlmReranker` sends the model only the candidate identifiers, never your document text; implement `RerankerInterface` yourself for a signal that actually sees the content.
 
 ### RAG generation (full example)
 
@@ -202,7 +266,7 @@ class SearchController
         foreach ($hits as $hit) {
             $record = $this->recordRepository->findByUid((int)$hit['identifier']);
             $excerpt = mb_substr(strip_tags($record->getBodyText()), 0, $maxChars);
-            $contextBlocks[] = sprintf('[%d] %s\n%s', $record->getUid(), $record->getTitle(), $excerpt);
+            $contextBlocks[] = sprintf("[%d] %s\n%s", $record->getUid(), $record->getTitle(), $excerpt);
         }
 
         // 4. Generate a grounded answer
@@ -222,12 +286,17 @@ Remove individual vectors when records are deleted, or wipe an entire collection
 
 ```php
 use BoehmMatthias\SmartSearch\Repository\VectorRepository;
+use BoehmMatthias\SmartSearch\Service\VectorService;
 
-// Remove a single entry
-$this->vectorRepository->deleteByIdentifier('my-extension-articles', (string)$uid);
+// Remove a single entry (VectorService and VectorRepository are constructor-injected)
+$this->vectorService->delete(collection: 'my-extension-articles', identifier: $uid);
+
+// Remove a document that was stored with embedAndStoreChunked(). delete() will not find
+// it — a chunked document has no row under its own identifier.
+$this->vectorService->deleteChunked(collection: 'my-extension-articles', identifier: $uid);
 
 // Remove all entries in a collection (e.g. before a full reindex)
-$this->vectorRepository->deleteByCollection('my-extension-articles');
+$this->vectorRepository->deleteByCollection(collection: 'my-extension-articles');
 ```
 
 ### Checking server availability
@@ -337,9 +406,14 @@ $vectorRepository->deleteByCollection('your-collection');
 
 - **No streaming** — generation responses are returned in full after the model finishes. The `stream: false` flag is hardcoded.
 - **Single-vector operations** — there is no batch embed API; callers must loop over records.
-- **No metadata fields** — the vector table stores only collection, identifier, vector, and a content hash. Extra fields (e.g. source URL, author) must be managed in the consuming extension's own tables.
 - **PHP 8.4+ only** — the extension uses readonly constructor properties and other PHP 8.4 features.
-- **In-process similarity search** — cosine similarity is computed in PHP after fetching all vectors for a collection. This works well up to tens of thousands of entries; for larger datasets consider a dedicated vector database.
+- **In-process similarity search** — cosine similarity is computed in PHP after fetching every vector in the collection. Peak memory is roughly 16 bytes per dimension per row, rounded up to the next power of two, so a 128 MB limit is reached at a few thousand rows at 1536 dimensions. Chunking multiplies the row count. For larger corpora, consider a dedicated vector database.
+- **Metadata filters do not reduce the rows read** — they are applied in PHP, deliberately, so no JSON-column support is required. They do avoid decoding the vectors of non-matching rows, but the rows are still fetched.
+- **Chunk results are not collapsed by default** — `findSimilar()` returns chunk identifiers, and chunks of one document are near-duplicates, so a single long document can fill `topK`. Pass `collapseChunks: true` to group back to parent documents.
+- **Reranking does not see your content** — `LlmReranker` sends the model only the candidate identifiers, never the document text, so it is ordering opaque strings. It is a seam for a better reranker rather than a strong signal in itself.
+- **Reranked results are ordered by relevance, not by score** — `score` remains the cosine similarity, so it stays comparable with `findSimilar()` and with `semanticThreshold`, but the array is no longer sorted descending by it.
+- **One embedding model per collection** — vectors from different models are not comparable. A dimension mismatch is detected and logged, but a same-dimension different-model swap is undetectable and returns confident nonsense. Switching models means `deleteByCollection()` plus a full re-embed.
+- **Vectors are stored in native byte order** — `pack('f*')` is architecture-dependent. A database dumped on one architecture and restored on another with different endianness will decode to garbage.
 
 ---
 
@@ -391,11 +465,12 @@ If you would rather start clean, the alternative is to call `VectorRepository::d
 
 1. Fork the repository and create a branch.
 2. Install dependencies: `composer install`
-3. Run the test suite: `vendor/bin/phpunit packages/smart-search/Tests/Unit/`
-4. Run static analysis: `vendor/bin/phpstan analyse -c packages/smart-search/phpstan.neon`
-5. Submit a pull request with a clear description of the change.
+3. Run the test suite: `Build/Scripts/runTests.sh -s unit`
+4. Run static analysis: `Build/Scripts/runTests.sh -s phpstan`
+5. Check coding standards: `Build/Scripts/runTests.sh -s cgl` (`-s cgl-fix` to apply)
+6. Submit a pull request with a clear description of the change.
 
-Please follow the existing code style (strict types, readonly constructors, PSR-12).
+Please follow the existing code style (strict types, readonly constructors, PER-CS). All three checks run in CI on every pull request.
 
 ---
 

@@ -15,6 +15,23 @@
   Run via `vendor/bin/typo3 upgrade:run smartSearchMigrateJsonVectorsToPackedFloat32` or the
   Install Tool.
 
+### Fixed
+
+- `embedAndStoreChunked()` accepts `metadata` and stores it on every chunk. Without it, chunked
+  documents were stored with empty metadata, so `findSimilar()` with any metadata filter returned
+  **zero results on a chunked collection, always** — silently, and in a mixed collection the
+  unchunked records still matched, so the result set looked plausible but was incomplete.
+- `findSimilarWithRerank()` accepts `metadataFilters` and forwards them. It previously had no such
+  parameter, so switching from `findSimilar()` to the reranked variant silently dropped the filter
+  and leaked results across language, site or tenant boundaries.
+- `embedAndStore()` now writes metadata that has changed even when the text has not. Metadata is
+  not part of the content hash, so it was effectively write-once: correcting a `sys_language_uid`
+  or backfilling a new key did nothing and filters kept using the stale values.
+
+### Added
+
+- `VectorRepository::updateMetadata()` and `findContentHashAndMetadata()`.
+
 ### Changed
 
 - **Breaking:** metadata filters now compare strictly. The previous loose `!=` inherited PHP's

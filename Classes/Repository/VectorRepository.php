@@ -67,6 +67,51 @@ class VectorRepository
     }
 
     /**
+     * Returns the stored content hash and metadata together, so the caller's change-detection
+     * path does not need a second query to decide whether metadata drifted.
+     *
+     * @return array{hash: string, metadata: array<string, scalar|null>}|null
+     */
+    public function findContentHashAndMetadata(string $collection, string $identifier): ?array
+    {
+        $row = $this->findRow($collection, $identifier);
+
+        if ($row === null) {
+            return null;
+        }
+
+        $raw = $row['metadata'] ?? null;
+
+        return [
+            'hash' => (string) $row['content_hash'],
+            'metadata' => $raw !== '' && $raw !== null
+                ? (array) json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR)
+                : [],
+        ];
+    }
+
+    /**
+     * Updates only the metadata for an existing entry, leaving the vector and content hash
+     * untouched. Used when the source text is unchanged but its metadata is not.
+     *
+     * @param array<string, scalar> $metadata
+     */
+    public function updateMetadata(string $collection, string $identifier, array $metadata): void
+    {
+        $this->connectionPool
+            ->getConnectionForTable(self::TABLE)
+            ->update(
+                self::TABLE,
+                [
+                    'metadata' => json_encode($metadata, JSON_THROW_ON_ERROR),
+                    'tstamp' => time(),
+                ],
+                ['collection' => $collection, 'identifier' => $identifier],
+                [Connection::PARAM_STR, Connection::PARAM_INT]
+            );
+    }
+
+    /**
      * Returns all vectors for the given collection, optionally filtered by metadata key-value pairs.
      * Metadata filtering is performed in PHP after the DB query (no JSON querying required).
      *

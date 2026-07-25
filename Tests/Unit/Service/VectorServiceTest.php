@@ -77,9 +77,9 @@ final class VectorServiceTest extends TestCase
         $hash = md5($text);
 
         $this->vectorRepository
-            ->method('findContentHash')
+            ->method('findContentHashAndMetadata')
             ->with('my-collection', '1')
-            ->willReturn($hash);
+            ->willReturn(['hash' => $hash, 'metadata' => []]);
 
         $this->embeddingClient->expects(self::never())->method('embed');
         $this->vectorRepository->expects(self::never())->method('upsert');
@@ -91,19 +91,22 @@ final class VectorServiceTest extends TestCase
     public function embedAndStoreCallsEmbedWhenHashDiffers(): void
     {
         $this->vectorRepository
-            ->method('findContentHash')
-            ->willReturn('old_hash');
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => 'old_hash', 'metadata' => []]);
 
         $this->embeddingClient
             ->expects(self::once())
             ->method('embed')
             ->willReturn([0.1, 0.2]);
 
+        // Asserting the arguments, not merely that upsert happened. The argument-blind
+        // version of this test is why chunked storage could silently drop metadata.
         $this->vectorRepository
             ->expects(self::once())
-            ->method('upsert');
+            ->method('upsert')
+            ->with('my-collection', '1', [0.1, 0.2], md5('Some text'), ['site' => 'main']);
 
-        $this->service->embedAndStore('my-collection', 1, 'Some text');
+        $this->service->embedAndStore('my-collection', 1, 'Some text', ['site' => 'main']);
     }
 
     #[Test]
@@ -245,6 +248,92 @@ final class VectorServiceTest extends TestCase
         $this->service->embedAndStoreChunked('col', '42', 'Full text.', $strategy);
 
         self::assertSame(['42_chunk_1', '42_chunk_2'], $deletedIdentifiers);
+    }
+
+    // --- metadata passthrough ---
+
+    #[Test]
+    public function embedAndStoreChunkedStoresMetadataOnEveryChunk(): void
+    {
+        $strategy = $this->createMock(ChunkingStrategyInterface::class);
+        $strategy->method('chunk')->willReturn(['First.', 'Second.']);
+
+        $this->vectorRepository->method('findContentHashAndMetadata')->willReturn(null);
+        $this->embeddingClient->method('embed')->willReturn([0.1]);
+        $this->vectorRepository->method('findIdentifiersByPrefix')->willReturn([]);
+
+        $storedMetadata = [];
+        $this->vectorRepository
+            ->expects(self::exactly(2))
+            ->method('upsert')
+            ->willReturnCallback(
+                static function (string $c, string $i, array $v, string $h, array $m) use (&$storedMetadata): void {
+                    $storedMetadata[] = $m;
+                }
+            );
+
+        $this->service->embedAndStoreChunked('col', '42', 'Full text.', $strategy, ['sys_language_uid' => 1]);
+
+        self::assertSame([['sys_language_uid' => 1], ['sys_language_uid' => 1]], $storedMetadata);
+    }
+
+    #[Test]
+    public function findSimilarWithRerankForwardsMetadataFiltersToRetrieval(): void
+    {
+        $reranker = $this->createMock(RerankerInterface::class);
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $reranker->method('rerank')->willReturnArgument(1);
+
+        $this->vectorRepository
+            ->expects(self::once())
+            ->method('findByCollection')
+            ->with('col', ['sys_language_uid' => 1])
+            ->willReturn([['identifier' => 'a', 'vector' => [1.0, 0.0]]]);
+
+        $this->service->findSimilarWithRerank(
+            'col',
+            'query',
+            $reranker,
+            metadataFilters: ['sys_language_uid' => 1],
+        );
+    }
+
+    #[Test]
+    public function embedAndStoreUpdatesMetadataWhenOnlyTheMetadataChanged(): void
+    {
+        $text = 'Unchanged text';
+
+        $this->vectorRepository
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => md5($text), 'metadata' => ['sys_language_uid' => 1]]);
+
+        // The text is unchanged, so nothing should be re-embedded or re-upserted...
+        $this->embeddingClient->expects(self::never())->method('embed');
+        $this->vectorRepository->expects(self::never())->method('upsert');
+
+        // ...but the drifted metadata must still be written.
+        $this->vectorRepository
+            ->expects(self::once())
+            ->method('updateMetadata')
+            ->with('col', '1', ['sys_language_uid' => 2]);
+
+        $this->service->embedAndStore('col', 1, $text, ['sys_language_uid' => 2]);
+    }
+
+    #[Test]
+    public function embedAndStoreWritesNothingWhenTextAndMetadataAreBothUnchanged(): void
+    {
+        $text = 'Unchanged text';
+
+        $this->vectorRepository
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => md5($text), 'metadata' => ['sys_language_uid' => 1]]);
+
+        $this->embeddingClient->expects(self::never())->method('embed');
+        $this->vectorRepository->expects(self::never())->method('upsert');
+        $this->vectorRepository->expects(self::never())->method('updateMetadata');
+
+        $this->service->embedAndStore('col', 1, $text, ['sys_language_uid' => 1]);
     }
 
     #[Test]

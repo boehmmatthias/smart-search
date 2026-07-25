@@ -32,11 +32,25 @@ class VectorService
         $text = $this->normalise($text);
         $hash = md5($text);
 
-        if ($this->vectorRepository->findContentHash($collection, $identifier) === $hash) {
-            $this->logger->debug('Skipping embedding — content hash unchanged', [
-                'collection' => $collection,
-                'identifier' => $identifier,
-            ]);
+        $stored = $this->vectorRepository->findContentHashAndMetadata($collection, $identifier);
+
+        if ($stored !== null && $stored['hash'] === $hash) {
+            // The text is unchanged, so the vector is still valid — but metadata is not part
+            // of the hash, and without this it would be write-once: correcting a
+            // sys_language_uid or backfilling a new key would silently do nothing, and
+            // filters would keep using the stale values.
+            if ($stored['metadata'] !== $metadata) {
+                $this->vectorRepository->updateMetadata($collection, $identifier, $metadata);
+                $this->logger->debug('Updated metadata — content hash unchanged', [
+                    'collection' => $collection,
+                    'identifier' => $identifier,
+                ]);
+            } else {
+                $this->logger->debug('Skipping embedding — content hash unchanged', [
+                    'collection' => $collection,
+                    'identifier' => $identifier,
+                ]);
+            }
             return;
         }
 
@@ -58,12 +72,15 @@ class VectorService
      * are deleted automatically.
      *
      * @param ChunkingStrategyInterface $strategy Strategy that decides how to split the text.
+     * @param array<string, scalar> $metadata Stored on every chunk, so chunked documents remain
+     *                                        reachable through metadata filters.
      */
     public function embedAndStoreChunked(
         string $collection,
         string|int $identifier,
         string $text,
         ChunkingStrategyInterface $strategy,
+        array $metadata = [],
     ): void {
         $identifier = (string) $identifier;
         $chunks = $strategy->chunk($text);
@@ -72,7 +89,7 @@ class VectorService
         foreach ($chunks as $index => $chunk) {
             $chunkIdentifier = $identifier . '_chunk_' . $index;
             $storedChunkIdentifiers[] = $chunkIdentifier;
-            $this->embedAndStore($collection, $chunkIdentifier, $chunk);
+            $this->embedAndStore($collection, $chunkIdentifier, $chunk, $metadata);
         }
 
         // Remove stale chunks from a previous version of this document
@@ -133,6 +150,8 @@ class VectorService
      * using the provided reranker for higher precision.
      *
      * @param int $rerankK How many candidates to retrieve before re-ranking (should be > $topK).
+     * @param array<string, scalar> $metadataFilters Applied to the candidate retrieval, exactly as
+     *                                               in findSimilar().
      * @return array<array{identifier: string, score: float}> Top $topK results after re-ranking.
      */
     public function findSimilarWithRerank(
@@ -141,8 +160,9 @@ class VectorService
         RerankerInterface $reranker,
         int $topK = 5,
         int $rerankK = 20,
+        array $metadataFilters = [],
     ): array {
-        $candidates = $this->findSimilar($collection, $query, max($topK, $rerankK));
+        $candidates = $this->findSimilar($collection, $query, max($topK, $rerankK), $metadataFilters);
 
         if (empty($candidates)) {
             return [];

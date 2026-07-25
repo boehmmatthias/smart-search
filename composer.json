@@ -3,7 +3,6 @@
   "description": "Generic vector embedding, semantic search and RAG infrastructure for TYPO3",
   "type": "typo3-cms-extension",
   "license": "GPL-2.0-or-later",
-  "version": "0.1.0",
   "keywords": ["typo3", "semantic-search", "vector", "rag", "llama", "embeddings"],
   "require": {
     "php": "^8.4",

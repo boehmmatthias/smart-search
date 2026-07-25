@@ -87,7 +87,7 @@ class VectorService
 
         $storedChunkIdentifiers = [];
         foreach ($chunks as $index => $chunk) {
-            $chunkIdentifier = $identifier . '_chunk_' . $index;
+            $chunkIdentifier = $identifier . self::CHUNK_SEPARATOR . $index;
             $storedChunkIdentifiers[] = $chunkIdentifier;
             $this->embedAndStore($collection, $chunkIdentifier, $chunk, $metadata);
         }
@@ -103,13 +103,12 @@ class VectorService
         // "Faq" document too.
         //
         // Only "{$identifier}_chunk_{int}", matched case-sensitively, is a chunk of this
-        // document. A document whose own identifier is literally "{$identifier}_chunk_{int}"
-        // remains ambiguous and is not distinguishable here.
-        $prefix = $identifier . '_chunk_';
-        $ownChunkPattern = '/^' . preg_quote($prefix, '/') . '\d+$/';
+        // document — see isOwnChunk(). A document whose own identifier is literally
+        // "{$identifier}_chunk_{int}" remains ambiguous and is not distinguishable here.
+        $prefix = $identifier . self::CHUNK_SEPARATOR;
         $allInCollection = $this->vectorRepository->findIdentifiersByPrefix($collection, $prefix);
         foreach ($allInCollection as $existing) {
-            if (preg_match($ownChunkPattern, $existing) !== 1) {
+            if (!$this->isOwnChunk($identifier, $existing)) {
                 continue;
             }
             if (!in_array($existing, $storedChunkIdentifiers, true)) {

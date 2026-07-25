@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `VectorCodec` — pack/unpack extracted from `VectorRepository` so the float32 round trip is
+  testable without a database.
+
+### Changed
+
+- **Breaking:** `VectorRepository::__construct()` now takes a `Psr\Log\LoggerInterface` as its
+  second argument. Only affects code that instantiates the repository directly; DI wiring is
+  unchanged.
+
+### Fixed
+
+- Undecodable vector blobs are now detected and logged at error level instead of being decoded
+  into plausible-looking garbage. A row still holding the pre-0.2.0 JSON text decoded to finite,
+  positive floats of the wrong dimension — indistinguishable downstream from a vector produced by
+  a different embedding model. Note `unpack('f*')` does not fail on a bad length; it
+  integer-divides and discards the remainder, so both a leading `[` and a byte length that is not
+  a multiple of 4 are now checked explicitly. Affected rows are skipped rather than aborting the
+  query.
+
 ## [0.1.0] - 2026-04-20
 
 ### Initial release

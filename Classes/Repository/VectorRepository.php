@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Repository;
 
+use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 
@@ -13,6 +14,7 @@ class VectorRepository
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
+        private readonly LoggerInterface $logger,
     ) {}
 
     /**
@@ -23,7 +25,7 @@ class VectorRepository
     {
         $existing = $this->findRow($collection, $identifier);
         $now = time();
-        $packed = $this->packVector($vector);
+        $packed = VectorCodec::pack($vector);
         $encodedMetadata = json_encode($metadata, JSON_THROW_ON_ERROR);
 
         if ($existing !== null) {
@@ -83,16 +85,36 @@ class VectorRepository
             ->executeQuery()
             ->fetchAllAssociative();
 
-        $entries = array_map(function (array $row): array {
+        $entries = [];
+        foreach ($rows as $row) {
+            $identifier = (string) $row['identifier'];
+
+            // A row that cannot be decoded is dropped rather than allowed to poison the
+            // result set with plausible-looking garbage. Logged at error level, because the
+            // usual cause is a row predating the packed-binary storage format, which needs a
+            // migration and will not fix itself.
+            try {
+                $vector = VectorCodec::unpack((string) $row['vector']);
+            } catch (\RuntimeException $e) {
+                $this->logger->error('Undecodable vector — entry skipped', [
+                    'collection' => $collection,
+                    'identifier' => $identifier,
+                    'bytes' => strlen((string) $row['vector']),
+                    'error' => $e->getMessage(),
+                ]);
+                continue;
+            }
+
             $meta = $row['metadata'] !== '' && $row['metadata'] !== null
                 ? (array) json_decode((string) $row['metadata'], true, 512, JSON_THROW_ON_ERROR)
                 : [];
-            return [
-                'identifier' => (string) $row['identifier'],
-                'vector' => $this->unpackVector((string) $row['vector']),
+
+            $entries[] = [
+                'identifier' => $identifier,
+                'vector' => $vector,
                 'metadata' => $meta,
             ];
-        }, $rows);
+        }
 
         if (empty($metadataFilters)) {
             return $entries;
@@ -148,30 +170,6 @@ class VectorRepository
     private function escapeLikePrefix(string $prefix): string
     {
         return str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $prefix) . '%';
-    }
-
-    /**
-     * Encodes a float array as packed IEEE 754 single-precision (float32) binary.
-     * ~4 bytes per dimension vs ~8–14 bytes per dimension in JSON.
-     *
-     * @param float[] $vector
-     */
-    private function packVector(array $vector): string
-    {
-        return pack('f*', ...$vector);
-    }
-
-    /**
-     * Decodes a packed float32 binary string back to a float array.
-     *
-     * @return float[]
-     */
-    private function unpackVector(string $binary): array
-    {
-        if ($binary === '') {
-            return [];
-        }
-        return array_values((array) unpack('f*', $binary));
     }
 
     /** @return array<string, mixed>|null */

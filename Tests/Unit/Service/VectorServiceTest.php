@@ -248,6 +248,68 @@ final class VectorServiceTest extends TestCase
     }
 
     #[Test]
+    public function embedAndStoreChunkedDoesNotDeleteSiblingDocumentsSharingTheChunkPrefix(): void
+    {
+        $strategy = $this->createMock(ChunkingStrategyInterface::class);
+        $strategy->method('chunk')->willReturn(['Only chunk.']);
+
+        $this->vectorRepository->method('findContentHash')->willReturn(null);
+        $this->embeddingClient->method('embed')->willReturn([0.1]);
+        $this->vectorRepository->method('upsert');
+
+        // LIKE 'faq\_chunk\_%' matches more than this document's own chunks:
+        //  - faq_chunk_0          our current chunk
+        //  - faq_chunk_1          a stale chunk of ours (indistinguishable from a document
+        //                         legitimately named "faq_chunk_1" — accepted ambiguity)
+        //  - faq_chunk_overview   a standalone document, never a chunk of "faq"
+        //  - faq_chunk_1_chunk_0  a chunk of the document "faq_chunk_1"
+        $this->vectorRepository
+            ->method('findIdentifiersByPrefix')
+            ->willReturn(['faq_chunk_0', 'faq_chunk_1', 'faq_chunk_overview', 'faq_chunk_1_chunk_0']);
+
+        $deletedIdentifiers = [];
+        $this->vectorRepository
+            ->method('deleteByIdentifier')
+            ->willReturnCallback(static function (string $col, string $id) use (&$deletedIdentifiers): void {
+                $deletedIdentifiers[] = $id;
+            });
+
+        $this->service->embedAndStoreChunked('col', 'faq', 'Full text.', $strategy);
+
+        self::assertSame(['faq_chunk_1'], $deletedIdentifiers);
+    }
+
+    #[Test]
+    public function embedAndStoreChunkedDoesNotDeleteChunksDifferingOnlyByCase(): void
+    {
+        $strategy = $this->createMock(ChunkingStrategyInterface::class);
+        $strategy->method('chunk')->willReturn(['Only chunk.']);
+
+        $this->vectorRepository->method('findContentHash')->willReturn(null);
+        $this->embeddingClient->method('embed')->willReturn([0.1]);
+        $this->vectorRepository->method('upsert');
+
+        // TYPO3 rewrites like() to ILIKE on PostgreSQL and SQLite's LIKE is
+        // ASCII-case-insensitive, so the prefix query can return chunks belonging to a
+        // separate, case-differing document. The unique index is case-sensitive on those
+        // platforms, so "foo" and "Foo" really are two distinct documents.
+        $this->vectorRepository
+            ->method('findIdentifiersByPrefix')
+            ->willReturn(['foo_chunk_0', 'Foo_chunk_1', 'FOO_chunk_2']);
+
+        $deletedIdentifiers = [];
+        $this->vectorRepository
+            ->method('deleteByIdentifier')
+            ->willReturnCallback(static function (string $col, string $id) use (&$deletedIdentifiers): void {
+                $deletedIdentifiers[] = $id;
+            });
+
+        $this->service->embedAndStoreChunked('col', 'foo', 'Full text.', $strategy);
+
+        self::assertSame([], $deletedIdentifiers);
+    }
+
+    #[Test]
     public function findSimilarResultsHaveIdentifierAndScoreKeys(): void
     {
         $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);

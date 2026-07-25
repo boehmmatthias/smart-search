@@ -78,11 +78,15 @@ class LlmReranker implements RerankerInterface
         }
 
         $reranked = [];
-        foreach ($rankedIdentifiers as $rank => $identifier) {
+        foreach ($rankedIdentifiers as $identifier) {
             if (isset($byIdentifier[$identifier])) {
-                $entry = $byIdentifier[$identifier];
-                $entry['score'] = 1.0 / ($rank + 1); // Replace score with rank-based value
-                $reranked[] = $entry;
+                // The original cosine score is preserved. This used to be overwritten with
+                // 1.0 / ($rank + 1), which silently changed what `score` meant: the documented
+                // consumer pattern filters on semanticThreshold (0.30), and rank-based values
+                // fall below it from position 4 onward, so `topK: 10` quietly became `topK: 3`
+                // regardless of actual relevance. It also mixed two scales in one array, since
+                // candidates the model omitted kept their cosine values.
+                $reranked[] = $byIdentifier[$identifier];
                 unset($byIdentifier[$identifier]);
             }
         }

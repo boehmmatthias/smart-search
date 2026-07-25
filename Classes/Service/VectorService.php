@@ -152,7 +152,10 @@ class VectorService
      * @param int $rerankK How many candidates to retrieve before re-ranking (should be > $topK).
      * @param array<string, scalar> $metadataFilters Applied to the candidate retrieval, exactly as
      *                                               in findSimilar().
-     * @return array<array{identifier: string, score: float}> Top $topK results after re-ranking.
+     * @return array<array{identifier: string, score: float}> Top $topK results, ordered by the
+     *         reranker's judgement of relevance — **not** by descending score. `score` remains the
+     *         cosine similarity from vector search, so it stays comparable with findSimilar()'s
+     *         output and with semanticThreshold.
      */
     public function findSimilarWithRerank(
         string $collection,

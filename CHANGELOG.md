@@ -17,6 +17,14 @@
 
 ### Fixed
 
+- **Breaking:** rerankers no longer rewrite `score`. `LlmReranker` replaced each candidate's cosine
+  similarity with `1.0 / (rank + 1)`, which silently changed what `score` means: the documented
+  consumer pattern filters on `semanticThreshold` (0.30), and rank-derived values drop below it from
+  position 4 onward, so `topK: 10` quietly became `topK: 3` regardless of relevance. Candidates the
+  model omitted kept their cosine values, so one array mixed two incompatible scales. `score` is now
+  always the cosine similarity and the new ranking is conveyed by array order alone — meaning
+  `findSimilarWithRerank()` returns results in relevance order, **not** descending score order.
+  `RerankerInterface` documents this requirement for third-party implementations.
 - **Breaking:** `LlamaCppEmbeddingClient` throws on HTTP 400 instead of halving the text and
   retrying. The retry produced a vector for as little as an eighth of the document, which was then
   stored against the *full*-text hash — so every later `embedAndStore()` short-circuited on it and

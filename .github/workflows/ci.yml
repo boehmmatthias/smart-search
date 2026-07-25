@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The extension requires ^8.4. Add versions here only alongside composer.json
+        # and ext_emconf.php — CLAUDE.md requires those to move together.
+        php: ['8.4']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      # composer.lock is gitignored, so there is nothing to pin against and the cache is
+      # keyed on composer.json instead. If the lock file is ever committed, key this on it
+      # and add --no-progress --prefer-dist to get reproducible builds.
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: .Build/vendor
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ matrix.php }}-
+
+      - name: Install dependencies
+        run: composer install --no-progress --no-interaction --prefer-dist
+
+      # Each check runs even if an earlier one failed, so a single push reports every
+      # problem rather than only the first.
+      - name: Unit tests
+        if: ${{ !cancelled() }}
+        run: .Build/vendor/bin/phpunit -c Build/phpunit/UnitTests.xml
+
+      - name: PHPStan
+        if: ${{ !cancelled() }}
+        run: .Build/vendor/bin/phpstan analyse -c phpstan.neon --no-progress
+
+      - name: Coding standards
+        if: ${{ !cancelled() }}
+        run: .Build/vendor/bin/php-cs-fixer fix --dry-run --diff --using-cache=no

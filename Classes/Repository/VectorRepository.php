@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace BoehmMatthias\SmartSearch\Repository;
 
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -11,6 +12,20 @@ use TYPO3\CMS\Core\Database\ConnectionPool;
 class VectorRepository
 {
     private const TABLE = 'tx_smartsearch_vector';
+
+    /**
+     * Column types keyed by name rather than by position.
+     *
+     * DBAL accepts either form, but the positional one is a standing hazard: it is consumed as
+     * data values followed by criteria values, so inserting a field anywhere before `vector`
+     * silently shifts PARAM_LOB onto a different column and binds the blob as a string. Keying
+     * by name makes the same array reusable for both insert() and update() and immune to
+     * reordering. Anything not named here defaults to PARAM_STR, which is correct for the rest.
+     */
+    private const COLUMN_TYPES = [
+        'vector' => Connection::PARAM_LOB,
+        'tstamp' => Connection::PARAM_INT,
+    ];
 
     public function __construct(
         private readonly ConnectionPool $connectionPool,
@@ -23,46 +38,36 @@ class VectorRepository
      */
     public function upsert(string $collection, string $identifier, array $vector, string $contentHash, array $metadata = []): void
     {
-        $existing = $this->findRow($collection, $identifier);
-        $now = time();
-        $packed = VectorCodec::pack($vector);
-        $encodedMetadata = json_encode($metadata, JSON_THROW_ON_ERROR);
+        $connection = $this->connectionPool->getConnectionForTable(self::TABLE);
+        $fields = [
+            'vector' => VectorCodec::pack($vector),
+            'content_hash' => $contentHash,
+            'metadata' => json_encode($metadata, JSON_THROW_ON_ERROR),
+            'tstamp' => time(),
+        ];
+        $criteria = ['collection' => $collection, 'identifier' => $identifier];
 
-        if ($existing !== null) {
-            $this->connectionPool
-                ->getConnectionForTable(self::TABLE)
-                ->update(
-                    self::TABLE,
-                    [
-                        'vector' => $packed,
-                        'content_hash' => $contentHash,
-                        'metadata' => $encodedMetadata,
-                        'tstamp' => $now,
-                    ],
-                    ['collection' => $collection, 'identifier' => $identifier],
-                    [Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
-                );
-        } else {
-            $this->connectionPool
-                ->getConnectionForTable(self::TABLE)
-                ->insert(
-                    self::TABLE,
-                    [
-                        'collection' => $collection,
-                        'identifier' => $identifier,
-                        'vector' => $packed,
-                        'content_hash' => $contentHash,
-                        'metadata' => $encodedMetadata,
-                        'tstamp' => $now,
-                    ],
-                    [Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_LOB, Connection::PARAM_STR, Connection::PARAM_STR, Connection::PARAM_INT]
-                );
+        if ($this->exists($collection, $identifier)) {
+            $connection->update(self::TABLE, $fields, $criteria, self::COLUMN_TYPES);
+            return;
+        }
+
+        try {
+            $connection->insert(self::TABLE, $criteria + $fields, self::COLUMN_TYPES);
+        } catch (UniqueConstraintViolationException) {
+            // exists() and the insert are separate statements with no transaction between
+            // them, and the caller does an HTTP embedding round trip before reaching this
+            // point — so the window is wide. Two workers indexing the same record both see
+            // "not present" and both insert; the unique key admits one. Falling through to an
+            // update is correct in either order and keeps the exception out of the caller's
+            // request cycle.
+            $connection->update(self::TABLE, $fields, $criteria, self::COLUMN_TYPES);
         }
     }
 
     public function findContentHash(string $collection, string $identifier): ?string
     {
-        $row = $this->findRow($collection, $identifier);
+        $row = $this->findRow($collection, $identifier, ['content_hash']);
         return $row !== null ? (string) $row['content_hash'] : null;
     }
 
@@ -74,7 +79,7 @@ class VectorRepository
      */
     public function findContentHashAndMetadata(string $collection, string $identifier): ?array
     {
-        $row = $this->findRow($collection, $identifier);
+        $row = $this->findRow($collection, $identifier, ['content_hash', 'metadata']);
 
         if ($row === null) {
             return null;
@@ -107,7 +112,7 @@ class VectorRepository
                     'tstamp' => time(),
                 ],
                 ['collection' => $collection, 'identifier' => $identifier],
-                [Connection::PARAM_STR, Connection::PARAM_INT]
+                self::COLUMN_TYPES
             );
     }
 
@@ -214,11 +219,21 @@ class VectorRepository
     }
 
     /** @return array<string, mixed>|null */
-    private function findRow(string $collection, string $identifier): ?array
+    /**
+     * Selects only the named columns.
+     *
+     * This used to be SELECT *, which pulled the whole MEDIUMBLOB across the wire on every
+     * change-detection check — roughly 12 KB per record at 3072 dimensions, on the hot path of
+     * any re-index run, purely to read a 32-character hash.
+     *
+     * @param string[] $columns
+     * @return array<string, mixed>|null
+     */
+    private function findRow(string $collection, string $identifier, array $columns): ?array
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
         $row = $queryBuilder
-            ->select('*')
+            ->select(...$columns)
             ->from(self::TABLE)
             ->where(
                 $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
@@ -228,5 +243,10 @@ class VectorRepository
             ->fetchAssociative();
 
         return $row !== false ? $row : null;
+    }
+
+    private function exists(string $collection, string $identifier): bool
+    {
+        return $this->findRow($collection, $identifier, ['uid']) !== null;
     }
 }

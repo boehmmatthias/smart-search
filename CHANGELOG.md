@@ -45,6 +45,15 @@
 - `findSimilarWithRerank()` accepts `metadataFilters` and forwards them. It previously had no such
   parameter, so switching from `findSimilar()` to the reranked variant silently dropped the filter
   and leaked results across language, site or tenant boundaries.
+- `upsert()` no longer throws a `UniqueConstraintViolationException` into the caller's request
+  cycle when two workers index the same record concurrently. The existence check and the insert are
+  separate statements with an HTTP embedding round trip between them, so the window is wide; a
+  duplicate-key insert now falls through to an update.
+- `Connection::PARAM_*` types are keyed by column name instead of by position. The positional form
+  was correct only by coincidence of field order — inserting a field before `vector` would have
+  shifted `PARAM_LOB` onto another column and bound the blob as a string.
+- Change-detection reads no longer `SELECT *`, which pulled the entire vector blob (~12 KB per
+  record at 3072 dimensions) on the hot path of every re-index just to read a 32-character hash.
 - `embedAndStore()` now writes metadata that has changed even when the text has not. Metadata is
   not part of the content hash, so it was effectively write-once: correcting a `sys_language_uid`
   or backfilling a new key did nothing and filters kept using the stale values.

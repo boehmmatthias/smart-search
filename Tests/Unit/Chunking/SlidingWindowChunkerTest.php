@@ -52,6 +52,48 @@ final class SlidingWindowChunkerTest extends TestCase
     }
 
     #[Test]
+    public function rejectsAnOverlapThatWouldDiscardText(): void
+    {
+        // The cursor advances by max($start + 1, $end - $overlapSize). A negative overlap turns
+        // that into $end + |overlap|, jumping past text that is then never emitted — 300 chars
+        // of input came back as 100 chars of chunks, with no error.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1_700_009_002);
+
+        new SlidingWindowChunker(chunkSize: 50, overlapSize: -100);
+    }
+
+    #[Test]
+    public function rejectsAnOverlapThatWouldNotAdvanceTheWindow(): void
+    {
+        // With overlapSize >= chunkSize the max() floor takes over and the window advances one
+        // character per iteration: a 500-char text produced 500 chunks, which is 500 sequential
+        // embedding round trips and 500 stored rows for half a kilobyte of input.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1_700_009_002);
+
+        new SlidingWindowChunker(chunkSize: 50, overlapSize: 50);
+    }
+
+    #[Test]
+    public function rejectsANonPositiveChunkSize(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1_700_009_001);
+
+        new SlidingWindowChunker(chunkSize: 0, overlapSize: 0);
+    }
+
+    #[Test]
+    public function aZeroOverlapIsAllowed(): void
+    {
+        $chunker = new SlidingWindowChunker(chunkSize: 50, overlapSize: 0);
+        $text = str_repeat('abcdefghij', 20);
+
+        self::assertSame($text, implode('', $chunker->chunk($text)));
+    }
+
+    #[Test]
     public function allChunksAreNonEmpty(): void
     {
         $chunker = new SlidingWindowChunker(chunkSize: 50, overlapSize: 10);

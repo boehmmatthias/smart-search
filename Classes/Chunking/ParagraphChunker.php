@@ -10,10 +10,40 @@ namespace BoehmMatthias\SmartSearch\Chunking;
  */
 class ParagraphChunker implements ChunkingStrategyInterface
 {
+    /**
+     * @throws \InvalidArgumentException if the sizes are non-positive or the minimum exceeds
+     *         the maximum
+     */
     public function __construct(
         private readonly int $minChunkSize = 100,
         private readonly int $maxChunkSize = 800,
-    ) {}
+    ) {
+        if ($minChunkSize < 1 || $maxChunkSize < 1) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'minChunkSize and maxChunkSize must be at least 1 character, got %d and %d.',
+                    $minChunkSize,
+                    $maxChunkSize,
+                ),
+                1_700_009_003,
+            );
+        }
+
+        // Merging is triggered by minChunkSize but bounded by maxChunkSize, so a minimum above
+        // the maximum leaves the "too small to stand alone" branch unable to ever satisfy
+        // itself: every merge candidate is rejected and the merging behaviour silently does
+        // nothing.
+        if ($minChunkSize > $maxChunkSize) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'minChunkSize (%d) must not exceed maxChunkSize (%d).',
+                    $minChunkSize,
+                    $maxChunkSize,
+                ),
+                1_700_009_004,
+            );
+        }
+    }
 
     public function chunk(string $text): array
     {

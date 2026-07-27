@@ -66,6 +66,26 @@ final class ParagraphChunkerTest extends TestCase
     }
 
     #[Test]
+    public function rejectsAMinimumLargerThanTheMaximum(): void
+    {
+        // Merging is bounded by maxChunkSize but triggered by minChunkSize, so a minimum above
+        // the maximum means the "too small to stand alone" branch can never satisfy itself.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1_700_009_004);
+
+        new ParagraphChunker(minChunkSize: 900, maxChunkSize: 800);
+    }
+
+    #[Test]
+    public function rejectsANonPositiveMinimum(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1_700_009_003);
+
+        new ParagraphChunker(minChunkSize: 0, maxChunkSize: 800);
+    }
+
+    #[Test]
     public function mergesTooSmallTrailingFragmentIntoLastChunk(): void
     {
         // minChunkSize = 100; trailing fragment is only 3 chars → must be merged

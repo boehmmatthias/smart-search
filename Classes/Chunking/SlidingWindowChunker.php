@@ -11,10 +11,38 @@ namespace BoehmMatthias\SmartSearch\Chunking;
  */
 class SlidingWindowChunker implements ChunkingStrategyInterface
 {
+    /**
+     * @throws \InvalidArgumentException if the sizes would produce no chunks, discard text, or
+     *         fail to advance the window
+     */
     public function __construct(
         private readonly int $chunkSize = 800,
         private readonly int $overlapSize = 100,
-    ) {}
+    ) {
+        if ($chunkSize < 1) {
+            throw new \InvalidArgumentException(
+                sprintf('chunkSize must be at least 1 character, got %d.', $chunkSize),
+                1_700_009_001,
+            );
+        }
+
+        // The cursor advances by max($start + 1, $end - $overlapSize), which misbehaves in both
+        // directions outside this range. A negative overlap becomes $end + |overlap| and jumps
+        // over text that is then never emitted — 300 characters of input came back as 100
+        // characters of chunks, silently. An overlap at or above chunkSize lets the max() floor
+        // take over, advancing one character per iteration: a 500-character text produced 500
+        // chunks, each its own embedding round trip and stored row.
+        if ($overlapSize < 0 || $overlapSize >= $chunkSize) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'overlapSize must be at least 0 and less than chunkSize (%d), got %d.',
+                    $chunkSize,
+                    $overlapSize,
+                ),
+                1_700_009_002,
+            );
+        }
+    }
 
     public function chunk(string $text): array
     {

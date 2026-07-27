@@ -103,12 +103,14 @@ final class MigrateJsonVectorsToPackedFloat32 implements UpgradeWizardInterface,
                 break;
             }
 
+            $failedInBatch = 0;
+
             foreach ($rows as $row) {
                 $uid = (int) $row['uid'];
                 $packed = $this->repack((string) $row['vector'], $uid);
 
                 if ($packed === null) {
-                    $failed++;
+                    $failedInBatch++;
                     continue;
                 }
 
@@ -121,9 +123,16 @@ final class MigrateJsonVectorsToPackedFloat32 implements UpgradeWizardInterface,
                 $converted++;
             }
 
-            // A row that could not be converted still matches the batch query, so a fixed
-            // batch size would loop forever once one is hit.
-            if ($failed > 0 && count($rows) === $failed) {
+            $failed += $failedInBatch;
+
+            // A row that could not be converted still matches the batch query, so once the
+            // batch consists entirely of such rows there is no forward progress left to make.
+            //
+            // This compares against the failures of *this* batch, not the running total. The
+            // total is wrong for the job: it keeps growing as the same stuck rows are re-fetched,
+            // so it matches the batch size only by coincidence and generally never does — a
+            // batch of 1 stuck row against a total of 2, 3, 4 … re-failed that row forever.
+            if ($failedInBatch === count($rows)) {
                 break;
             }
         }

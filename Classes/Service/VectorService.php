@@ -97,44 +97,56 @@ class VectorService
 
         // embedAndStore() flushes per call, so a 50-chunk document would issue 50 flushes of the
         // same tag. Suppressed for the duration and flushed once at the end.
+        //
+        // The reset is in a finally because embed() is required to throw on transport failure,
+        // and this service is shared. Clearing the flag only on the success path left it set for
+        // the rest of the process after the first unreachable embedding server, which silently
+        // turned off invalidation for every later write and delete — cached result sets then
+        // outlived the rows they named for the full TTL.
         $this->suppressCacheFlush = true;
-        $storedChunkIdentifiers = [];
-        foreach ($chunks as $index => $chunk) {
-            $chunkIdentifier = $identifier . self::CHUNK_SEPARATOR . $index;
-            $storedChunkIdentifiers[] = $chunkIdentifier;
-            $this->embedAndStore($collection, $chunkIdentifier, $chunk, $metadata);
-        }
 
-        // Remove stale chunks from a previous version of this document.
-        //
-        // The prefix query is deliberately wider than what we may delete. It matches any
-        // identifier starting with "{$identifier}_chunk_", which includes documents that
-        // merely share that prefix — a standalone "faq_chunk_overview", or the chunks of a
-        // document named "faq_chunk_1" — none of which are ours to remove. It is also
-        // case-insensitive on PostgreSQL (like() becomes ILIKE) and SQLite, while the unique
-        // index on those platforms is case-sensitive, so it can return chunks of a separate
-        // "Faq" document too.
-        //
-        // Only "{$identifier}_chunk_{int}", matched case-sensitively, is a chunk of this
-        // document — see isOwnChunk(). A document whose own identifier is literally
-        // "{$identifier}_chunk_{int}" remains ambiguous and is not distinguishable here.
-        $prefix = $identifier . self::CHUNK_SEPARATOR;
-        $allInCollection = $this->vectorRepository->findIdentifiersByPrefix($collection, $prefix);
-        foreach ($allInCollection as $existing) {
-            if (!$this->isOwnChunk($identifier, $existing)) {
-                continue;
+        try {
+            $storedChunkIdentifiers = [];
+            foreach ($chunks as $index => $chunk) {
+                $chunkIdentifier = $identifier . self::CHUNK_SEPARATOR . $index;
+                $storedChunkIdentifiers[] = $chunkIdentifier;
+                $this->embedAndStore($collection, $chunkIdentifier, $chunk, $metadata);
             }
-            if (!in_array($existing, $storedChunkIdentifiers, true)) {
-                $this->vectorRepository->deleteByIdentifier($collection, $existing);
-                $this->logger->debug('Deleted stale chunk', [
-                    'collection' => $collection,
-                    'identifier' => $existing,
-                ]);
-            }
-        }
 
-        $this->suppressCacheFlush = false;
-        $this->flushQueryCache($collection);
+            // Remove stale chunks from a previous version of this document.
+            //
+            // The prefix query is deliberately wider than what we may delete. It matches any
+            // identifier starting with "{$identifier}_chunk_", which includes documents that
+            // merely share that prefix — a standalone "faq_chunk_overview", or the chunks of a
+            // document named "faq_chunk_1" — none of which are ours to remove. It is also
+            // case-insensitive on PostgreSQL (like() becomes ILIKE) and SQLite, while the unique
+            // index on those platforms is case-sensitive, so it can return chunks of a separate
+            // "Faq" document too.
+            //
+            // Only "{$identifier}_chunk_{int}", matched case-sensitively, is a chunk of this
+            // document — see isOwnChunk(). A document whose own identifier is literally
+            // "{$identifier}_chunk_{int}" remains ambiguous and is not distinguishable here.
+            $prefix = $identifier . self::CHUNK_SEPARATOR;
+            $allInCollection = $this->vectorRepository->findIdentifiersByPrefix($collection, $prefix);
+            foreach ($allInCollection as $existing) {
+                if (!$this->isOwnChunk($identifier, $existing)) {
+                    continue;
+                }
+                if (!in_array($existing, $storedChunkIdentifiers, true)) {
+                    $this->vectorRepository->deleteByIdentifier($collection, $existing);
+                    $this->logger->debug('Deleted stale chunk', [
+                        'collection' => $collection,
+                        'identifier' => $existing,
+                    ]);
+                }
+            }
+        } finally {
+            // Flushed on the failure path too. A run that threw partway through has already
+            // written some chunks, so the collection's cached result sets are stale either way;
+            // over-invalidating costs one recomputation, under-invalidating serves wrong rows.
+            $this->suppressCacheFlush = false;
+            $this->flushQueryCache($collection);
+        }
     }
 
     /**

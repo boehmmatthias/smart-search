@@ -187,6 +187,51 @@ final class VectorServiceCacheTest extends TestCase
     }
 
     #[Test]
+    public function aFailedChunkedWriteDoesNotDisableInvalidationForEverythingAfterIt(): void
+    {
+        // The suppression flag exists so a 50-chunk document issues one flush rather than 50.
+        // It was cleared after the chunk loop, which an embedding failure skips — and the
+        // interface requires embed() to throw on transport failure. VectorService is a shared
+        // DI service, so the flag then stayed set for the rest of the process and every later
+        // write and delete silently stopped invalidating, serving results naming rows that no
+        // longer exist for the full TTL.
+        $this->withTtl(3600);
+
+        $strategy = $this->createMock(\BoehmMatthias\SmartSearch\Chunking\ChunkingStrategyInterface::class);
+        $strategy->method('chunk')->willReturn(['one', 'two']);
+        $this->vectorRepository->method('findContentHashAndMetadata')->willReturn(null);
+        $this->vectorRepository->method('findIdentifiersByPrefix')->willReturn([]);
+
+        // The first chunk is written, the second fails — so a partial write really did land and
+        // the collection's cached result sets are stale regardless of the failure.
+        $embedCalls = 0;
+        $this->embeddingClient->method('embed')->willReturnCallback(
+            static function () use (&$embedCalls): array {
+                if (++$embedCalls > 1) {
+                    throw new \RuntimeException('embedding server unreachable');
+                }
+
+                return [0.1];
+            },
+        );
+
+        // Once for the partially-completed chunked write, once for the delete that follows it.
+        $this->cache
+            ->expects(self::exactly(2))
+            ->method('flushByTag')
+            ->with('smartsearch_collection_col');
+
+        try {
+            $this->service->embedAndStoreChunked('col', 'doc', 'text', $strategy);
+            self::fail('embedAndStoreChunked() should surface the embedding failure.');
+        } catch (\RuntimeException) {
+            // Expected — the point is what the service does to itself on the way out.
+        }
+
+        $this->service->delete('col', 'unrelated');
+    }
+
+    #[Test]
     public function cacheTagsAreNormalisedForCollectionNamesWithPunctuation(): void
     {
         // TYPO3 tags allow only [A-Za-z0-9_%\-&], so an unnormalised name would be rejected.

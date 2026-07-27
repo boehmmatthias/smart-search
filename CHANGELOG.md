@@ -13,6 +13,9 @@
   vectors whose source records are gone. Refuses to act on an empty live-identifier list unless
   `--allow-empty` is given, since that is indistinguishable from a provider that failed to load.
 - `VectorRepository::findAllIdentifiers()`, `deleteOrphans()` and `deleteByIdentifiers()`.
+- Multi-turn conversations: `ConversationHistory` plus a `history` argument on
+  `GenerationService::generate()`, inserted between the system message and the current question so
+  the model can resolve follow-ups.
 - Query result caching for `findSimilar()` via the TYPO3 cache framework, configured with
   `queryCacheTtl` (`0` disables it). Entries are tagged per collection and invalidated on every
   write and delete path, so the TTL is a ceiling rather than a staleness window.

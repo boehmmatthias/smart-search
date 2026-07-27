@@ -7,6 +7,12 @@ namespace BoehmMatthias\SmartSearch\Chunking;
 /**
  * Splits text on blank lines (paragraphs). Chunks smaller than $minChunkSize
  * are merged with the next paragraph to avoid indexing tiny fragments.
+ *
+ * $maxChunkSize bounds merging only — it is the point past which two small paragraphs are not
+ * combined. It is not a cap on chunk length: a single paragraph longer than it is emitted whole,
+ * because the alternative is cutting mid-sentence at an arbitrary offset, which is what
+ * SlidingWindowChunker is for. Feed this strategy text whose paragraphs are already shorter than
+ * the embedding context window, or use SlidingWindowChunker when they are not.
  */
 class ParagraphChunker implements ChunkingStrategyInterface
 {

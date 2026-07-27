@@ -36,7 +36,50 @@
 - **Breaking:** `VectorService::__construct()` takes a `FrontendInterface $cache` as its fifth
   argument, and `GenerationService::__construct()` a `StreamingGenerationClientInterface` as its
   third. DI wiring handles both; only direct instantiation is affected.
-- "No streaming" is removed from Known Limitations.
+- **Breaking:** both chunker constructors now reject arguments that silently produced bad output.
+  `SlidingWindowChunker` requires `chunkSize >= 1` and `0 <= overlapSize < chunkSize`;
+  `ParagraphChunker` requires both sizes `>= 1` and `minChunkSize <= maxChunkSize`.
+- **Breaking:** `VectorService::cosineSimilarity()` throws on vectors of differing dimension
+  instead of scoring over the shared prefix. `findSimilar()` screens dimensions before calling it,
+  so only direct callers are affected.
+- **Breaking:** `ConversationHistory` rejects any role other than `user` and `assistant`, which
+  its docblock already required — a system message here produces a second one in the request.
+  It now also implements `\Countable`.
+- `ModelAvailabilityService` follows `embeddingProvider` and `generationProvider` instead of
+  always probing the llama.cpp URLs, so an Ollama or OpenAI install is no longer reported as
+  unavailable while working. Ollama is probed at `/api/tags`; OpenAI is reported on by whether an
+  API key is configured, with no network call.
+- `deleteByIdentifiers()` returns the number of rows actually deleted rather than the number of
+  identifiers passed in, which `smartsearch:cleanup` reports.
+- Metadata change detection ignores key order, so passing the same pairs in a different order no
+  longer rewrites the row and flushes the collection's cached searches.
+- `symfony/console`, `doctrine/dbal` and `psr/log` are declared in `composer.json`. All three were
+  already imported directly and resolved only transitively through `typo3/cms-core`.
+
+### Fixed
+
+- **The `smartSearchMigrateJsonVectorsToPackedFloat32` wizard could loop forever.** Its progress
+  guard compared the running failure total against the current batch size, so any run with at
+  least one convertible and one unconvertible row re-fetched and re-failed the same rows
+  indefinitely. This is the one path a 0.1.0 upgrade must run.
+- **A failed chunked write disabled cache invalidation for the rest of the process.**
+  `embedAndStoreChunked()` cleared its suppression flag only on the success path, and the
+  embedding client contract requires throwing on transport failure. Since `VectorService` is
+  shared, one unreachable embedding server left every later write and delete silently
+  non-invalidating, so cached result sets outlived the rows they named.
+- **`ParagraphChunker` never split text with CRLF line endings**, because `\r\n\r\n` has no two
+  adjacent `\n`. Windows-authored and imported content came back as one chunk, which was then
+  truncated at `embeddingContextLength` — silently dropping the tail from the index.
+- **Undecodable `metadata` aborted every search on the collection.** `\JsonException` extends
+  `\Exception`, so it fell outside the `\RuntimeException` handler guarding the vector. Both
+  decode sites now log and degrade to an empty metadata set, which also lets the affected record
+  be re-indexed instead of failing before the write.
+- Cleared `embeddingServerUrl`, `generationServerUrl`, `generationMaxTokens` and
+  `generationTimeout` fields fall back to their defaults. The Install Tool stores `''` for a
+  cleared field, which `??` does not catch — and Guzzle reads a timeout of `0` as "wait
+  indefinitely".
+- `LlamaCppEmbeddingClient` normalises components to `float`, as the Ollama and OpenAI clients
+  already did.
 
 ## [0.2.0] - 2026-07-25
 

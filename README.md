@@ -17,11 +17,14 @@
 
 - **Vectorization** — embed arbitrary text into float vectors via a pluggable client. Change detection via MD5 hashing avoids redundant API calls.
 - **Semantic search** — find the most relevant stored entries for a natural-language query using cosine similarity, ranked by score.
-- **RAG generation** — supply pre-formatted context blocks and get a grounded LLM answer that cites its sources.
-- **Pluggable backends** — ships llama.cpp clients for both embedding and generation; swap in OpenAI, Ollama, or any other HTTP-based model by implementing two small interfaces.
+- **RAG generation** — supply pre-formatted context blocks and get a grounded LLM answer that cites its sources, in one call or streamed token by token.
+- **Multi-turn conversations** — carry prior turns into the next question with `ConversationHistory`, so the model can resolve follow-ups.
+- **Pluggable backends** — ships llama.cpp, Ollama and OpenAI clients for both embedding and generation, selected by configuration. Any other HTTP-based provider works by implementing two small interfaces.
 - **Text chunking** — split long documents with `ParagraphChunker` or `SlidingWindowChunker`, or your own `ChunkingStrategyInterface`. Chunks are stored, updated and removed as a set.
 - **Metadata filtering** — store scalar key-value pairs alongside each vector (language, site, tenant, author) and restrict searches to entries matching all of them.
+- **Hybrid search** — fuse the semantic ranking with your own keyword search using Reciprocal Rank Fusion.
 - **Reranking** — widen retrieval and reorder the candidates through a `RerankerInterface` for higher precision.
+- **Query caching** — `findSimilar()` results are cached and invalidated per collection on every write and delete, so the TTL is a ceiling rather than a staleness window.
 - **Collection scoping** — multiple extensions can share the same table using distinct collection names without collision.
 - **PSR-3 logging** — all HTTP errors and unexpected responses are logged to the TYPO3 log.
 
@@ -33,10 +36,17 @@
 |-------------|---------|
 | PHP | 8.4+ |
 | TYPO3 | 14.x |
-| Embedding server | Any server exposing `POST /embedding` (default `http://localhost:8080`) |
-| Generation server | Any OpenAI-compatible chat completions server (default `http://localhost:8081`) |
+| A model backend | llama.cpp, Ollama or OpenAI — see below |
 
-Ships with llama.cpp, Ollama and OpenAI clients out of the box, selected with the `embeddingProvider` and `generationProvider` settings. Any other HTTP-based provider (Ollama, OpenAI, Azure OpenAI, …) works by implementing two small interfaces — see [Custom Backend](#implementing-a-custom-backend).
+Ships with llama.cpp, Ollama and OpenAI clients for both embedding and generation, selected with the `embeddingProvider` and `generationProvider` settings. The two are chosen independently, so embedding locally on llama.cpp while generating with a hosted model is a supported arrangement.
+
+| Provider | Embedding endpoint | Generation endpoint | Configured with |
+|----------|--------------------|---------------------|-----------------|
+| `llamacpp` *(default)* | `POST {embeddingServerUrl}/embedding` | `POST {generationServerUrl}/v1/chat/completions` | `embeddingServerUrl`, `generationServerUrl` |
+| `ollama` | `POST {ollamaServerUrl}/api/embeddings` | `POST {ollamaServerUrl}/api/chat` | `ollamaServerUrl`, `ollamaEmbeddingModel`, `ollamaGenerationModel` |
+| `openai` | `POST https://api.openai.com/v1/embeddings` | `POST https://api.openai.com/v1/chat/completions` | `openAiApiKey`, `openAiEmbeddingModel`, `openAiGenerationModel` |
+
+Any other provider (Azure OpenAI, a gateway, an in-house service) works by implementing two small interfaces — see [Custom Backend](#implementing-a-custom-backend).
 
 ---
 
@@ -46,30 +56,50 @@ Ships with llama.cpp, Ollama and OpenAI clients out of the box, selected with th
 composer require boehmmatthias/smartsearch
 ```
 
-Activate the extension:
+Set the extension up. This is what creates the `tx_smartsearch_vector` table:
 
 ```bash
-vendor/bin/typo3 extension:activate smart_search
+vendor/bin/typo3 extension:setup --extension=smart_search
 ```
 
-Run the database schema update in **Admin Tools → Maintenance → Analyze Database Structure** to create the `tx_smartsearch_vector` table.
+Omit `--extension` to set up every extension at once. In the backend, the equivalent is **Admin Tools → Maintenance → Analyze Database Structure**.
 
 ---
 
 ## Server Setup
 
-The extension is provider-agnostic: any server that exposes `POST /embedding` and `POST /v1/chat/completions` (OpenAI-compatible) works. Update the URLs in **Admin Tools → Settings → Extension Configuration → smart_search** to point at your chosen backend.
+Pick a provider and configure it in **Admin Tools → Settings → Extension Configuration → smart_search**.
 
 ### Production
 
-Point the two configuration URLs at your production inference server — a self-hosted [llama.cpp](https://github.com/ggml-org/llama.cpp), [Ollama](https://ollama.com), or a hosted API like OpenAI. No bundled scripts are involved.
+**llama.cpp** — point the two URLs at your inference server. No bundled scripts are involved.
 
 ```
+embeddingProvider    → llamacpp
+generationProvider   → llamacpp
 embeddingServerUrl   → http://your-embedding-host:8080
 generationServerUrl  → http://your-generation-host:8081
 ```
 
-To use a provider that speaks a different API shape (e.g. OpenAI), implement the two interfaces — see [Custom Backend](#implementing-a-custom-backend).
+**Ollama** — one URL serves both sides; name the models you have pulled.
+
+```
+embeddingProvider    → ollama
+generationProvider   → ollama
+ollamaServerUrl      → http://your-ollama-host:11434
+```
+
+**OpenAI** — set the API key. Note that it is stored in plain text in the site configuration and is readable by any backend administrator.
+
+```
+embeddingProvider    → openai
+generationProvider   → openai
+openAiApiKey         → sk-...
+```
+
+The two providers are independent, so `embeddingProvider: llamacpp` with `generationProvider: openai` is a valid combination. To use a provider none of the three clients speaks, implement the two interfaces — see [Custom Backend](#implementing-a-custom-backend).
+
+> **Changing `embeddingProvider` invalidates every stored vector.** Vectors from different models are not comparable, and a same-dimension swap is undetectable. Clear the collection and re-embed.
 
 ### Development (llama.sh helper)
 
@@ -128,6 +158,8 @@ All settings are available under **Admin Tools → Settings → Extension Config
 | `queryCacheTtl` | integer | `3600` | Seconds to cache `findSimilar()` results. `0` disables caching. Entries are invalidated per collection whenever a vector is written or deleted, so stale results are not served — the TTL is only a ceiling. |
 | `systemPrompt` | text | *(empty)* | Overrides the built-in RAG system prompt. Leave empty to use the default. A per-call `systemPrompt` argument to `generate()` takes precedence over this. |
 
+Clearing a field in the Install Tool stores an empty string rather than removing the setting, so every getter falls back to the default shown above rather than to `''` or `0`. A `generationTimeout` of `0` in particular would mean "wait indefinitely".
+
 `ragTopK`, `documentContextLength` and `semanticThreshold` are **advisory**: `smart_search` does not apply them itself. They exist so a consuming extension and its integrator have one agreed place to configure retrieval policy — read them via `SmartSearchConfiguration` and apply them in your own code. Setting `semanticThreshold` will not change what `findSimilar()` returns.
 
 ---
@@ -177,7 +209,7 @@ $this->vectorService->embedAndStore(
 
 Metadata is compared **strictly**, so the filter value's type must match what was stored: a filter of `'1'` will not match a stored integer `1`. Integers and floats are interchangeable.
 
-Metadata is not part of the change-detection hash, so calling `embedAndStore()` again with the same text but different metadata updates the metadata without re-embedding.
+Metadata is not part of the change-detection hash, so calling `embedAndStore()` again with the same text but different metadata updates the metadata without re-embedding. Key order is not significant — passing the same pairs in a different order counts as unchanged and writes nothing.
 
 ### Long documents: chunking
 
@@ -188,10 +220,19 @@ $this->vectorService->embedAndStoreChunked(
     collection: 'my-extension-articles',
     identifier: $record->getUid(),
     text: $text,
-    strategy: new ParagraphChunker(maxChars: 1500),
+    strategy: new ParagraphChunker(minChunkSize: 100, maxChunkSize: 1500),
     metadata: ['sys_language_uid' => 1],
 );
 ```
+
+Two strategies ship. Both reject arguments that would silently produce bad chunks, throwing `InvalidArgumentException` at construction:
+
+| Strategy | Arguments | Constraints |
+|----------|-----------|-------------|
+| `ParagraphChunker` | `minChunkSize` (100), `maxChunkSize` (800) | both ≥ 1, and `minChunkSize` ≤ `maxChunkSize` |
+| `SlidingWindowChunker` | `chunkSize` (800), `overlapSize` (100) | `chunkSize` ≥ 1, and `0` ≤ `overlapSize` < `chunkSize` |
+
+`ParagraphChunker` splits on blank lines (any line-ending style) and merges paragraphs below `minChunkSize` into their neighbour. `maxChunkSize` bounds that merging — it is not a cap on chunk length, so a single paragraph longer than it is emitted whole. Use `SlidingWindowChunker` when your paragraphs are themselves longer than the embedding context window.
 
 Chunks are stored as `"{identifier}_chunk_{n}"`. Chunks that disappear because the document got shorter are removed automatically. Use `deleteChunked()` to remove a chunked document — `delete()` will not find it, because there is no row under the bare identifier:
 
@@ -236,6 +277,90 @@ $hits = $this->vectorService->findSimilarWithRerank(
 ```
 
 The result is ordered by the reranker's judgement of relevance, **not** by descending `score` — `score` stays the cosine similarity so it remains comparable with `findSimilar()`. Note that the bundled `LlmReranker` sends the model only the candidate identifiers, never your document text; implement `RerankerInterface` yourself for a signal that actually sees the content.
+
+### Hybrid search
+
+`HybridSearchService` fuses the semantic ranking with a keyword ranking using Reciprocal Rank Fusion. RRF compares *ranks* rather than scores, which is the point: a cosine similarity and a keyword relevance score are on unrelated scales and cannot be combined arithmetically.
+
+This extension has no keyword search of its own — it knows nothing about your records. Supply one:
+
+```php
+namespace MyVendor\MyExtension\Search;
+
+use BoehmMatthias\SmartSearch\Search\KeywordSearchInterface;
+
+final class ArticleKeywordSearch implements KeywordSearchInterface
+{
+    /** @return string[] Identifiers in ranked order, best match first. */
+    public function search(string $collection, string $query): array
+    {
+        // Your own fulltext/LIKE query. Identifiers must come from the same
+        // namespace as those passed to embedAndStore(), or the two rankings
+        // cannot be fused.
+    }
+}
+```
+
+```yaml
+BoehmMatthias\SmartSearch\Search\KeywordSearchInterface:
+  alias: MyVendor\MyExtension\Search\ArticleKeywordSearch
+```
+
+Then search:
+
+```php
+$hits = $this->hybridSearchService->findSimilar(
+    collection: 'my-extension-articles',
+    query: 'how do I configure caching?',
+    topK: 5,
+    semanticWeight: 0.7,
+    keywordWeight: 0.3,
+    metadataFilters: ['sys_language_uid' => 1],
+    collapseChunks: true,
+);
+```
+
+Until you bind an implementation, `NullKeywordSearch` is bound and finds nothing, so hybrid search degrades to pure semantic search rather than failing.
+
+> The returned `score` is an **RRF value, not a cosine similarity** — do not compare it against `semanticThreshold`. Negative weights, or two zero weights, throw `InvalidArgumentException`.
+
+### Streaming generation
+
+`generateStream()` takes the same arguments as `generate()` and resolves the system prompt identically, invoking your callback once per text delta as it arrives:
+
+```php
+$this->generationService->generateStream(
+    query: $question,
+    contextBlocks: $contextBlocks,
+    onChunk: function (string $delta): void {
+        echo $delta;
+        flush();
+    },
+);
+```
+
+Streaming is served by `StreamingGenerationClientInterface`, bound to `LlamaCppStreamingGenerationClient` (Server-Sent Events against an OpenAI-compatible endpoint). Unlike `generate()`, it does **not** follow `generationProvider` — bind the interface yourself to stream from another backend.
+
+### Multi-turn conversations
+
+Pass prior turns so the model can resolve follow-ups like "and the second one?". They are inserted between the system message and the current question:
+
+```php
+use BoehmMatthias\SmartSearch\ValueObject\ConversationHistory;
+
+$history = ConversationHistory::empty()
+    ->withUserMessage('What are the opening hours?')
+    ->withAssistantMessage('The camp is open from 8:00 to 20:00.')
+    ->truncated(maxTurns: 5);
+
+$answer = $this->generationService->generate(
+    query: 'And on weekends?',
+    contextBlocks: $contextBlocks,
+    history: $history,
+);
+```
+
+`ConversationHistory` is immutable — every method returns a new instance. `truncated()` keeps the most recent turns and drops the oldest, which is what a context window running out actually needs. It holds `user` and `assistant` turns only and throws `InvalidArgumentException` on anything else: the system message is prepended by `GenerationService`, so one in here would produce two.
 
 ### RAG generation (full example)
 
@@ -310,7 +435,7 @@ $this->vectorRepository->deleteByCollection(collection: 'my-extension-articles')
 
 ### Checking server availability
 
-Use `ModelAvailabilityService` to guard features that depend on the llama servers, for example to show or hide a semantic search toggle in the UI:
+Use `ModelAvailabilityService` to guard features that depend on a model backend, for example to show or hide a semantic search toggle in the UI:
 
 ```php
 use BoehmMatthias\SmartSearch\Service\ModelAvailabilityService;
@@ -324,7 +449,15 @@ if ($this->modelAvailabilityService->isGenerationServerAvailable()) {
 }
 ```
 
-Results are cached for the duration of the current request (null-coalescing pattern).
+Each side follows its own provider setting, so the check reflects the backend actually in use:
+
+| Provider | How availability is determined |
+|----------|-------------------------------|
+| `llamacpp` | `GET {serverUrl}/health` returns < 300 |
+| `ollama` | `GET {ollamaServerUrl}/api/tags` returns < 300 |
+| `openai` | An `openAiApiKey` is configured. No network call is made — OpenAI has no free health endpoint, and the cheapest probe would be a billable request |
+
+Probes use a 2-second timeout and never throw: an unreachable server is reported as unavailable and logged at debug level. Results are cached for the duration of the current request.
 
 ---
 
@@ -351,15 +484,18 @@ final class ArticleReindexHandler implements ReindexCommandInterface
 
     public function reindex(): int
     {
+        $indexed = 0;
+
         foreach ($this->articles->findAll() as $article) {
             $this->vectorService->embedAndStore(
                 collection: 'myext_articles',
                 identifier: $article->getUid(),
                 text: $article->getSearchableText(),
             );
+            $indexed++;
         }
 
-        return count($articles);
+        return $indexed;
     }
 }
 ```
@@ -382,27 +518,31 @@ wipes everything. Pass `--allow-empty` when the source really is empty.
 
 ## Implementing a Custom Backend
 
-The two interfaces make it straightforward to replace the llama.cpp clients with any other embedding or generation provider.
+llama.cpp, Ollama and OpenAI are already covered by the `embeddingProvider` and `generationProvider` settings — you do not need to write a client for those. This section is for a provider none of them speaks: Azure OpenAI, an LLM gateway, or an in-house service.
 
-### Custom embedding client (example: OpenAI)
+### Custom embedding client (example: Azure OpenAI)
 
 ```php
 namespace MyVendor\MyExtension\Embedding;
 
 use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
 
-final class OpenAiEmbeddingClient implements EmbeddingClientInterface
+final class AzureOpenAiEmbeddingClient implements EmbeddingClientInterface
 {
     public function __construct(
+        private readonly string $endpoint,
         private readonly string $apiKey,
-        private readonly string $model = 'text-embedding-3-small',
+        private readonly string $deployment,
     ) {}
 
-    /** @return float[] */
+    /** @return float[] Never empty. */
     public function embed(string $text): array
     {
-        // Call the OpenAI embeddings API and return the float array.
-        // ...
+        // Call your deployment and return the float array.
+        // MUST throw \RuntimeException on transport failure or an unexpected
+        // payload — returning [] stores a zero-length vector that then scores
+        // 0.0 against everything, which is indistinguishable from a genuinely
+        // unrelated document.
     }
 }
 ```
@@ -411,10 +551,10 @@ Then bind it in your extension's `Configuration/Services.yaml`:
 
 ```yaml
 BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface:
-  alias: MyVendor\MyExtension\Embedding\OpenAiEmbeddingClient
+  alias: MyVendor\MyExtension\Embedding\AzureOpenAiEmbeddingClient
 ```
 
-The same pattern applies to `GenerationClientInterface` for swapping the chat completion backend.
+This replaces `ConfigurableEmbeddingClient`, so the `embeddingProvider` setting no longer has any effect — your client is used unconditionally. The same pattern applies to `GenerationClientInterface` for the chat completion backend, and to `StreamingGenerationClientInterface` for streaming.
 
 > **Note:** When using a different embedding model, make sure all vectors in a collection were generated by the same model. Mixing models produces meaningless similarity scores. Use `VectorRepository::deleteByCollection()` and re-embed when switching models.
 
@@ -466,7 +606,9 @@ $vectorRepository->deleteByCollection('your-collection');
 ## Known Limitations
 
 - **Single-vector operations** — there is no batch embed API; callers must loop over records.
-- **PHP 8.4+ only** — the extension uses readonly constructor properties and other PHP 8.4 features.
+- **PHP 8.4+ only** — set by `composer.json` and `ext_emconf.php`, which move together. TYPO3 14 itself requires 8.2+; this extension pins higher.
+- **The keyword half of hybrid search is not metadata-filtered** — `smart_search` cannot apply filters to a search it does not run. If your collection mixes languages or tenants, scope it inside your own `KeywordSearchInterface`, or those rows re-enter the fused ranking through that branch.
+- **Streaming ignores `generationProvider`** — `generateStream()` resolves through `StreamingGenerationClientInterface`, which is bound to the llama.cpp SSE client. Ollama and OpenAI streaming clients are not bundled; bind your own.
 - **In-process similarity search** — cosine similarity is computed in PHP after fetching every vector in the collection. Peak memory is roughly 16 bytes per dimension per row, rounded up to the next power of two, so a 128 MB limit is reached at a few thousand rows at 1536 dimensions. Chunking multiplies the row count. For larger corpora, consider a dedicated vector database.
 - **Metadata filters do not reduce the rows read** — they are applied in PHP, deliberately, so no JSON-column support is required. They do avoid decoding the vectors of non-matching rows, but the rows are still fetched.
 - **Chunk results are not collapsed by default** — `findSimilar()` returns chunk identifiers, and chunks of one document are near-duplicates, so a single long document can fill `topK`. Pass `collapseChunks: true` to group back to parent documents.

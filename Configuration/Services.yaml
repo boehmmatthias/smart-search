@@ -9,11 +9,13 @@ services:
 
   # Bind the embedding interface to the llama.cpp implementation.
   # Server URLs are configured via ext_conf_template.txt (TYPO3 Install Tool → Settings → Extension Configuration).
+  # Both interfaces resolve to a dispatcher that honours the embeddingProvider and
+  # generationProvider settings. Override either alias to bind a client of your own.
   BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface:
-    alias: BoehmMatthias\SmartSearch\Embedding\LlamaCppEmbeddingClient
+    alias: BoehmMatthias\SmartSearch\Embedding\ConfigurableEmbeddingClient
 
   BoehmMatthias\SmartSearch\Generation\GenerationClientInterface:
-    alias: BoehmMatthias\SmartSearch\Generation\LlamaCppGenerationClient
+    alias: BoehmMatthias\SmartSearch\Generation\ConfigurableGenerationClient
 
   # Declared explicitly rather than left to Symfony's singly-implemented-interface rule.
   # That rule works today only because LlmReranker is the sole implementation — the moment a
@@ -50,3 +52,16 @@ services:
   # until a consumer aliases this to their own implementation.
   BoehmMatthias\SmartSearch\Search\KeywordSearchInterface:
     alias: BoehmMatthias\SmartSearch\Search\NullKeywordSearch
+
+  # The three slots are typed as the interface, so they must be wired by service id.
+  BoehmMatthias\SmartSearch\Embedding\ConfigurableEmbeddingClient:
+    arguments:
+      $llamaCpp: '@BoehmMatthias\SmartSearch\Embedding\LlamaCppEmbeddingClient'
+      $ollama: '@BoehmMatthias\SmartSearch\Embedding\OllamaEmbeddingClient'
+      $openAi: '@BoehmMatthias\SmartSearch\Embedding\OpenAiEmbeddingClient'
+
+  BoehmMatthias\SmartSearch\Generation\ConfigurableGenerationClient:
+    arguments:
+      $llamaCpp: '@BoehmMatthias\SmartSearch\Generation\LlamaCppGenerationClient'
+      $ollama: '@BoehmMatthias\SmartSearch\Generation\OllamaGenerationClient'
+      $openAi: '@BoehmMatthias\SmartSearch\Generation\OpenAiGenerationClient'

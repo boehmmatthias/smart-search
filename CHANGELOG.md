@@ -13,6 +13,10 @@
   vectors whose source records are gone. Refuses to act on an empty live-identifier list unless
   `--allow-empty` is given, since that is indistinguishable from a provider that failed to load.
 - `VectorRepository::findAllIdentifiers()`, `deleteOrphans()` and `deleteByIdentifiers()`.
+- Ollama and OpenAI clients for both embedding and generation, selected with the new
+  `embeddingProvider` and `generationProvider` settings. `ConfigurableEmbeddingClient` and
+  `ConfigurableGenerationClient` dispatch to the configured backend, so the interfaces resolve
+  without a consumer overriding the aliases.
 - Hybrid search: `HybridSearchService` fuses semantic and keyword rankings with Reciprocal Rank
   Fusion, plus `KeywordSearchInterface` for consumers to supply the keyword half. `NullKeywordSearch`
   is bound by default so the container resolves without a consumer implementation; hybrid search then

@@ -36,7 +36,7 @@
 | Embedding server | Any server exposing `POST /embedding` (default `http://localhost:8080`) |
 | Generation server | Any OpenAI-compatible chat completions server (default `http://localhost:8081`) |
 
-Ships with llama.cpp clients out of the box. Any other HTTP-based provider (Ollama, OpenAI, Azure OpenAI, …) works by implementing two small interfaces — see [Custom Backend](#implementing-a-custom-backend).
+Ships with llama.cpp, Ollama and OpenAI clients out of the box, selected with the `embeddingProvider` and `generationProvider` settings. Any other HTTP-based provider (Ollama, OpenAI, Azure OpenAI, …) works by implementing two small interfaces — see [Custom Backend](#implementing-a-custom-backend).
 
 ---
 
@@ -117,6 +117,14 @@ All settings are available under **Admin Tools → Settings → Extension Config
 | `ragTopK` | integer | `5` | Number of top-scoring documents retrieved and passed as context for RAG generation. |
 | `documentContextLength` | integer | `800` | Maximum characters of document content included per context block in RAG requests. |
 | `semanticThreshold` | float | `0.30` | Minimum cosine similarity score (0.0–1.0) to treat a result as a semantic match. |
+| `embeddingProvider` | options | `llamacpp` | Embedding backend: `llamacpp`, `ollama` or `openai`. An unrecognised value falls back to `llamacpp`. **Changing this invalidates every stored vector** — vectors from different models are not comparable, so clear the collection and re-embed. |
+| `generationProvider` | options | `llamacpp` | Generation backend, chosen independently of the embedding one. |
+| `openAiApiKey` | string | *(empty)* | Required for the `openai` providers. **Stored in plain text in the site configuration and readable by any backend admin.** |
+| `openAiEmbeddingModel` | string | `text-embedding-3-small` | |
+| `openAiGenerationModel` | string | `gpt-4o-mini` | |
+| `ollamaServerUrl` | string | `http://localhost:11434` | |
+| `ollamaEmbeddingModel` | string | `nomic-embed-text` | |
+| `ollamaGenerationModel` | string | `llama3.2` | |
 | `queryCacheTtl` | integer | `3600` | Seconds to cache `findSimilar()` results. `0` disables caching. Entries are invalidated per collection whenever a vector is written or deleted, so stale results are not served — the TTL is only a ceiling. |
 | `systemPrompt` | text | *(empty)* | Overrides the built-in RAG system prompt. Leave empty to use the default. A per-call `systemPrompt` argument to `generate()` takes precedence over this. |
 

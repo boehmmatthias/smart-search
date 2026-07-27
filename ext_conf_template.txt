@@ -27,3 +27,27 @@ systemPrompt =
 
 # cat=LLM/Performance; type=integer; label=TTL in seconds for cached search results (0 disables query caching)
 queryCacheTtl = 3600
+
+# cat=Providers/basic; type=options[llama.cpp=llamacpp,Ollama=ollama,OpenAI=openai]; label=Embedding backend
+embeddingProvider = llamacpp
+
+# cat=Providers/basic; type=options[llama.cpp=llamacpp,Ollama=ollama,OpenAI=openai]; label=Generation backend
+generationProvider = llamacpp
+
+# cat=Providers/openai; type=string; label=OpenAI API key (stored in plain text in the site configuration)
+openAiApiKey =
+
+# cat=Providers/openai; type=string; label=OpenAI embedding model
+openAiEmbeddingModel = text-embedding-3-small
+
+# cat=Providers/openai; type=string; label=OpenAI generation model
+openAiGenerationModel = gpt-4o-mini
+
+# cat=Providers/ollama; type=string; label=Ollama server URL
+ollamaServerUrl = http://localhost:11434
+
+# cat=Providers/ollama; type=string; label=Ollama embedding model
+ollamaEmbeddingModel = nomic-embed-text
+
+# cat=Providers/ollama; type=string; label=Ollama generation model
+ollamaGenerationModel = llama3.2

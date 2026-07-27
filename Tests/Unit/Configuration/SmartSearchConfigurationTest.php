@@ -87,6 +87,41 @@ final class SmartSearchConfigurationTest extends TestCase
     }
 
     #[Test]
+    public function clearedServerUrlsFallBackToTheirDefaults(): void
+    {
+        // The Install Tool stores every setting as a string, so a cleared field is '' and not
+        // absent — which ?? does not catch. An empty embeddingServerUrl made the client request
+        // the relative URI '/embedding', so RequestFactory threw with a message naming neither
+        // the setting nor the extension.
+        self::assertSame(
+            'http://localhost:8080',
+            $this->makeConfiguration(['embeddingServerUrl' => ''])->getEmbeddingServerUrl(),
+        );
+        self::assertSame(
+            'http://localhost:8081',
+            $this->makeConfiguration(['generationServerUrl' => '  '])->getGenerationServerUrl(),
+        );
+    }
+
+    #[Test]
+    public function clearedGenerationLimitsFallBackRatherThanBecomingZero(): void
+    {
+        // (int) '' is 0. A max_tokens of 0 asks for an empty answer, and Guzzle reads a timeout
+        // of 0 as "wait indefinitely" — so a hung inference server blocked the request forever,
+        // on the embedding path too, since both embedding clients use getGenerationTimeout().
+        self::assertSame(512, $this->makeConfiguration(['generationMaxTokens' => ''])->getGenerationMaxTokens());
+        self::assertSame(512, $this->makeConfiguration(['generationMaxTokens' => '0'])->getGenerationMaxTokens());
+        self::assertSame(512, $this->makeConfiguration(['generationMaxTokens' => '-1'])->getGenerationMaxTokens());
+
+        self::assertSame(300, $this->makeConfiguration(['generationTimeout' => ''])->getGenerationTimeout());
+        self::assertSame(300, $this->makeConfiguration(['generationTimeout' => '0'])->getGenerationTimeout());
+        self::assertSame(300, $this->makeConfiguration(['generationTimeout' => '-30'])->getGenerationTimeout());
+
+        // A configured positive value still wins.
+        self::assertSame(60, $this->makeConfiguration(['generationTimeout' => '60'])->getGenerationTimeout());
+    }
+
+    #[Test]
     public function systemPromptIsNullWhenBlankSoTheBuiltInDefaultWins(): void
     {
         self::assertNull($this->makeConfiguration(['systemPrompt' => ''])->getSystemPrompt());

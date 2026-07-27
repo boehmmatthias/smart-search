@@ -18,22 +18,32 @@ class SmartSearchConfiguration
 
     public function getEmbeddingServerUrl(): string
     {
-        return trim((string) ($this->config['embeddingServerUrl'] ?? 'http://localhost:8080'));
+        return $this->nonEmpty($this->config['embeddingServerUrl'] ?? null, 'http://localhost:8080');
     }
 
     public function getGenerationServerUrl(): string
     {
-        return trim((string) ($this->config['generationServerUrl'] ?? 'http://localhost:8081'));
+        return $this->nonEmpty($this->config['generationServerUrl'] ?? null, 'http://localhost:8081');
     }
 
+    /**
+     * Clamped to a positive value: (int) '' is 0, and asking a model for 0 tokens requests an
+     * empty answer rather than falling back to anything.
+     */
     public function getGenerationMaxTokens(): int
     {
-        return (int) ($this->config['generationMaxTokens'] ?? 512);
+        return $this->positiveOr($this->config['generationMaxTokens'] ?? null, 512);
     }
 
+    /**
+     * Clamped to a positive value. Guzzle reads a timeout of 0 as "wait indefinitely", so a
+     * cleared field turned a hung inference server into a request that never returns. This is
+     * also the timeout both the Ollama and OpenAI embedding clients use, so it is not confined
+     * to the generation path.
+     */
     public function getGenerationTimeout(): int
     {
-        return (int) ($this->config['generationTimeout'] ?? 300);
+        return $this->positiveOr($this->config['generationTimeout'] ?? null, 300);
     }
 
     /**
@@ -144,6 +154,17 @@ class SmartSearchConfiguration
         $trimmed = trim((string) $value);
 
         return $trimmed !== '' ? $trimmed : $default;
+    }
+
+    /**
+     * Integer counterpart to nonEmpty(): a cleared field casts to 0, and every integer setting
+     * here is a limit for which 0 is not a weaker value but a different, broken meaning.
+     */
+    private function positiveOr(mixed $value, int $default): int
+    {
+        $configured = (int) $value;
+
+        return $configured > 0 ? $configured : $default;
     }
 
     public function getSystemPrompt(): ?string

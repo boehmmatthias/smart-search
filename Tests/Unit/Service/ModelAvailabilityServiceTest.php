@@ -97,6 +97,83 @@ final class ModelAvailabilityServiceTest extends TestCase
         $this->service->isEmbeddingServerAvailable(); // second call must not trigger another request
     }
 
+    #[Test]
+    public function ollamaAvailabilityProbesTheOllamaServerNotTheLlamaCppUrl(): void
+    {
+        // The probe used to hit {embeddingServerUrl}/health whatever the configured provider,
+        // so an Ollama install reported its embedding backend unavailable while it was working
+        // — and the documented use of this service is to hide search and RAG features.
+        $this->configuration->method('getEmbeddingProvider')->willReturn('ollama');
+        $this->configuration->method('getOllamaServerUrl')->willReturn('http://ollama.example:11434');
+
+        $this->requestFactory
+            ->expects(self::once())
+            ->method('request')
+            ->with('http://ollama.example:11434/api/tags', 'GET', self::anything())
+            ->willReturn($this->makeResponse(200));
+
+        self::assertTrue($this->service->isEmbeddingServerAvailable());
+    }
+
+    #[Test]
+    public function ollamaGenerationAvailabilityProbesTheOllamaServerToo(): void
+    {
+        $this->configuration->method('getGenerationProvider')->willReturn('ollama');
+        $this->configuration->method('getOllamaServerUrl')->willReturn('http://ollama.example:11434/');
+
+        $this->requestFactory
+            ->expects(self::once())
+            ->method('request')
+            ->with('http://ollama.example:11434/api/tags', 'GET', self::anything())
+            ->willReturn($this->makeResponse(200));
+
+        self::assertTrue($this->service->isGenerationServerAvailable());
+    }
+
+    #[Test]
+    public function openAiAvailabilityIsDecidedByTheApiKeyWithoutANetworkCall(): void
+    {
+        // OpenAI exposes no free health endpoint — the cheapest check is a billable API call.
+        // Configuration is the only thing worth reporting on, and it is the only thing that
+        // actually fails locally.
+        $this->configuration->method('getEmbeddingProvider')->willReturn('openai');
+        $this->configuration->method('getOpenAiApiKey')->willReturn('sk-test');
+
+        $this->requestFactory->expects(self::never())->method('request');
+
+        self::assertTrue($this->service->isEmbeddingServerAvailable());
+    }
+
+    #[Test]
+    public function openAiIsUnavailableWhenNoApiKeyIsConfigured(): void
+    {
+        $this->configuration->method('getGenerationProvider')->willReturn('openai');
+        $this->configuration->method('getOpenAiApiKey')->willReturn('');
+
+        $this->requestFactory->expects(self::never())->method('request');
+
+        self::assertFalse($this->service->isGenerationServerAvailable());
+    }
+
+    #[Test]
+    public function theTwoSidesAreProbedIndependently(): void
+    {
+        // Providers are chosen independently, so embedding on llama.cpp with generation on
+        // OpenAI is a normal arrangement and each side must answer for its own backend.
+        $this->configuration->method('getEmbeddingProvider')->willReturn('llamacpp');
+        $this->configuration->method('getGenerationProvider')->willReturn('openai');
+        $this->configuration->method('getOpenAiApiKey')->willReturn('sk-test');
+
+        $this->requestFactory
+            ->expects(self::once())
+            ->method('request')
+            ->with('http://localhost:8080/health', 'GET', self::anything())
+            ->willReturn($this->makeResponse(200));
+
+        self::assertTrue($this->service->isEmbeddingServerAvailable());
+        self::assertTrue($this->service->isGenerationServerAvailable());
+    }
+
     private function makeResponse(int $statusCode): ResponseInterface
     {
         $response = $this->createMock(ResponseInterface::class);

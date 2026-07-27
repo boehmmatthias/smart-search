@@ -151,6 +151,35 @@ final class VectorRepositoryTest extends TestCase
     }
 
     #[Test]
+    public function deleteByIdentifiersReportsRowsActuallyDeleted(): void
+    {
+        // The count came from count($batch) — the identifiers asked about, not the rows the
+        // statement touched. smartsearch:cleanup prints this as "Deleted %d orphaned vector(s)",
+        // which an operator reads to sanity-check the blast radius of a destructive sweep.
+        $expressionBuilder = $this->createMock(ExpressionBuilder::class);
+        $expressionBuilder->method('eq')->willReturn('collection = :dcValue1');
+        $expressionBuilder->method('in')->willReturn('identifier IN (:dcValue2)');
+
+        foreach (['delete', 'where'] as $method) {
+            $this->queryBuilder->method($method)->willReturnSelf();
+        }
+        $this->queryBuilder->method('expr')->willReturn($expressionBuilder);
+        $this->queryBuilder->method('createNamedParameter')->willReturn(':dcValue1');
+        // Three identifiers requested, but one row was already gone.
+        $this->queryBuilder->method('executeStatement')->willReturn(2);
+
+        self::assertSame(2, $this->repository->deleteByIdentifiers('docs', ['a', 'b', 'gone']));
+    }
+
+    #[Test]
+    public function deleteByIdentifiersDoesNothingForAnEmptyList(): void
+    {
+        $this->queryBuilder->expects(self::never())->method('executeStatement');
+
+        self::assertSame(0, $this->repository->deleteByIdentifiers('docs', []));
+    }
+
+    #[Test]
     public function deleteOrphansRefusesAnEmptyLiveListUnlessExplicitlyAllowed(): void
     {
         // A provider that failed to load returns [] just as readily as one whose source is

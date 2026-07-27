@@ -294,7 +294,8 @@ class VectorRepository
      * span thousands of identifiers, and databases cap both placeholder counts and packet size.
      *
      * @param string[] $identifiers
-     * @return int Number of identifiers deleted.
+     * @return int Number of rows actually deleted, which can be lower than the number of
+     *         identifiers passed in.
      */
     public function deleteByIdentifiers(string $collection, array $identifiers): int
     {
@@ -306,7 +307,12 @@ class VectorRepository
 
         foreach (array_chunk($identifiers, self::DELETE_BATCH_SIZE) as $batch) {
             $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
-            $queryBuilder
+
+            // The statement's affected-row count, not count($batch). Those differ whenever an
+            // identifier appears twice in the list or the row went away between
+            // findAllIdentifiers() and here — and the caller is a destructive sweep whose
+            // reported total is the only thing an operator has to check its blast radius.
+            $deleted += (int) $queryBuilder
                 ->delete(self::TABLE)
                 ->where(
                     $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
@@ -316,8 +322,6 @@ class VectorRepository
                     ),
                 )
                 ->executeStatement();
-
-            $deleted += count($batch);
         }
 
         return $deleted;

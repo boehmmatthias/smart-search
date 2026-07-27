@@ -420,16 +420,37 @@ class VectorService
     }
 
     /**
+     * Cosine similarity of two vectors of equal dimension.
+     *
+     * Rejects mismatched lengths rather than scoring over the shared prefix, which is what
+     * min(count($a), count($b)) did: two vectors from different embedding models are not
+     * comparable at all, and truncating one to the other's length turns that into a confident
+     * number with nothing behind it. findSimilar() screens dimensions before it gets here and
+     * logs what it drops, so this only fires for a direct caller.
+     *
      * @param float[] $a
      * @param float[] $b
+     * @throws \InvalidArgumentException if the vectors have different dimensions
      */
     public function cosineSimilarity(array $a, array $b): float
     {
+        if (count($a) !== count($b)) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'Cosine similarity needs vectors of equal dimension, got %d and %d. Vectors '
+                    . 'from different embedding models are not comparable.',
+                    count($a),
+                    count($b),
+                ),
+                1_700_009_006,
+            );
+        }
+
         $dot = 0.0;
         $normA = 0.0;
         $normB = 0.0;
 
-        $length = min(count($a), count($b));
+        $length = count($a);
         for ($i = 0; $i < $length; $i++) {
             $dot += $a[$i] * $b[$i];
             $normA += $a[$i] ** 2;

@@ -77,6 +77,34 @@ final class VectorServiceTest extends TestCase
     // --- embedAndStore ---
 
     #[Test]
+    public function cosineSimilarityRejectsMismatchedDimensions(): void
+    {
+        // This used to score over min(count($a), count($b)) — the shared prefix — and return a
+        // confident number for two vectors that are not comparable at all. findSimilar() guards
+        // dimensions before calling, but this is public API and a direct caller had nothing.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1_700_009_006);
+
+        $this->service->cosineSimilarity([1.0, 0.0, 0.0], [1.0, 0.0]);
+    }
+
+    #[Test]
+    public function findSimilarStillSkipsMismatchedEntriesRatherThanFailingTheQuery(): void
+    {
+        // The guard in findSimilar() must keep absorbing a mixed-dimension collection: one bad
+        // row is logged and dropped, and the rest of the search still returns.
+        $this->embeddingClient->method('embed')->willReturn([1.0, 0.0]);
+        $this->vectorRepository->method('findByCollection')->willReturn([
+            ['identifier' => 'old-model', 'vector' => [1.0, 0.0, 0.0], 'metadata' => []],
+            ['identifier' => 'current', 'vector' => [1.0, 0.0], 'metadata' => []],
+        ]);
+
+        $results = $this->service->findSimilar('col', 'query');
+
+        self::assertSame(['current'], array_column($results, 'identifier'));
+    }
+
+    #[Test]
     public function embedAndStoreSkipsEmbeddingWhenHashMatches(): void
     {
         $text = 'Hello World';

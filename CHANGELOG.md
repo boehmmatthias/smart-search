@@ -6,6 +6,9 @@
 
 - `VectorRepository::getCollectionStats()` — per-collection vector count and last-indexed
   timestamp, aggregated in SQL.
+- CLI commands `smartsearch:stats`, `smartsearch:clear` and `smartsearch:reindex`, plus
+  `ReindexCommandInterface` for consuming extensions to contribute reindex handlers via the
+  `smartsearch.reindex_handler` tag.
 
 ## [0.2.0] - 2026-07-25
 

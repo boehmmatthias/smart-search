@@ -325,6 +325,7 @@ Results are cached for the duration of the current request (null-coalescing patt
 vendor/bin/typo3 smartsearch:stats                 # collections, vector counts, last indexed
 vendor/bin/typo3 smartsearch:clear <collection>    # delete every vector in a collection
 vendor/bin/typo3 smartsearch:reindex [collection]  # run registered reindex handlers
+vendor/bin/typo3 smartsearch:cleanup [collection]  # remove vectors for deleted records
 ```
 
 `smartsearch:clear` prompts before deleting and defaults to no; pass `-y` to skip the prompt in scripts. There is no undo — this extension does not know your source records, so restoring means re-running your own indexer against a live embedding server.
@@ -359,6 +360,14 @@ MyVendor\MyExt\Search\ArticleReindexHandler:
   tags:
     - name: smartsearch.reindex_handler
 ```
+
+`smartsearch:cleanup` works the same way, via `OrphanProviderInterface` and the
+`smartsearch.orphan_provider` tag. Your provider returns the identifiers that still exist; anything
+else in the collection is deleted.
+
+If a provider returns an empty list the command **stops rather than deleting the collection** — an
+empty list is indistinguishable from a provider that failed to load its records, and guessing wrong
+wipes everything. Pass `--allow-empty` when the source really is empty.
 
 ---
 

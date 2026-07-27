@@ -14,6 +14,12 @@ class VectorRepository
     private const TABLE = 'tx_smartsearch_vector';
 
     /**
+     * Placeholder count per DELETE. Databases cap both bound parameters and packet size, so a
+     * sweep spanning thousands of identifiers is split rather than sent as one statement.
+     */
+    private const DELETE_BATCH_SIZE = 500;
+
+    /**
      * Column types keyed by name rather than by position.
      *
      * DBAL accepts either form, but the positional one is a standing hazard: it is consumed as
@@ -193,6 +199,95 @@ class VectorRepository
         $this->connectionPool
             ->getConnectionForTable(self::TABLE)
             ->delete(self::TABLE, ['collection' => $collection]);
+    }
+
+    /**
+     * Every identifier stored for a collection.
+     *
+     * @return string[]
+     */
+    public function findAllIdentifiers(string $collection): array
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+        $rows = $queryBuilder
+            ->select('identifier')
+            ->from(self::TABLE)
+            ->where(
+                $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
+            )
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        return array_map(static fn(array $row): string => (string) $row['identifier'], $rows);
+    }
+
+    /**
+     * Deletes vectors whose identifiers are NOT in $liveIdentifiers.
+     *
+     * An empty $liveIdentifiers means "the source has no records left", which would delete the
+     * entire collection. That is a legitimate thing to want and a catastrophic thing to do by
+     * accident — a provider that fails to load its records returns an empty array just as
+     * readily as one whose table is genuinely empty. So it must be stated explicitly rather
+     * than silently ignored, which is what the previous guard did.
+     *
+     * @param string[] $liveIdentifiers Identifiers that still exist in the source data.
+     * @param bool $allowEmpty Required to proceed when $liveIdentifiers is empty.
+     * @return int Number of vectors deleted.
+     * @throws \InvalidArgumentException if $liveIdentifiers is empty and $allowEmpty is false
+     */
+    public function deleteOrphans(string $collection, array $liveIdentifiers, bool $allowEmpty = false): int
+    {
+        if ($liveIdentifiers === [] && !$allowEmpty) {
+            throw new \InvalidArgumentException(
+                sprintf(
+                    'Refusing to treat every vector in collection "%s" as an orphan. Pass '
+                    . '$allowEmpty if the source really is empty; otherwise the provider failed '
+                    . 'to load its identifiers.',
+                    $collection,
+                ),
+                1_700_006_001,
+            );
+        }
+
+        $orphans = array_values(array_diff($this->findAllIdentifiers($collection), $liveIdentifiers));
+
+        return $this->deleteByIdentifiers($collection, $orphans);
+    }
+
+    /**
+     * Deletes the given identifiers in as few statements as practical.
+     *
+     * Batched rather than one DELETE per row: an orphan sweep after a bulk content deletion can
+     * span thousands of identifiers, and databases cap both placeholder counts and packet size.
+     *
+     * @param string[] $identifiers
+     * @return int Number of identifiers deleted.
+     */
+    public function deleteByIdentifiers(string $collection, array $identifiers): int
+    {
+        if ($identifiers === []) {
+            return 0;
+        }
+
+        $deleted = 0;
+
+        foreach (array_chunk($identifiers, self::DELETE_BATCH_SIZE) as $batch) {
+            $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+            $queryBuilder
+                ->delete(self::TABLE)
+                ->where(
+                    $queryBuilder->expr()->eq('collection', $queryBuilder->createNamedParameter($collection)),
+                    $queryBuilder->expr()->in(
+                        'identifier',
+                        $queryBuilder->createNamedParameter($batch, Connection::PARAM_STR_ARRAY),
+                    ),
+                )
+                ->executeStatement();
+
+            $deleted += count($batch);
+        }
+
+        return $deleted;
     }
 
     /**

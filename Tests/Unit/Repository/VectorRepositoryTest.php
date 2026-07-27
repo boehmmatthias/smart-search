@@ -80,4 +80,15 @@ final class VectorRepositoryTest extends TestCase
 
         self::assertSame(0, $this->repository->getCollectionStats()[0]['last_indexed']);
     }
+
+    #[Test]
+    public function deleteOrphansRefusesAnEmptyLiveListUnlessExplicitlyAllowed(): void
+    {
+        // A provider that failed to load returns [] just as readily as one whose source is
+        // genuinely empty, and acting on it deletes the entire collection.
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionCode(1_700_006_001);
+
+        $this->repository->deleteOrphans('docs', []);
+    }
 }

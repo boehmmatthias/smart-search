@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `VectorRepository::getCollectionStats()` — per-collection vector count and last-indexed
+  timestamp, aggregated in SQL.
+
 ## [0.2.0] - 2026-07-25
 
 This release consolidates four features that landed after 0.1.0 but were never recorded here

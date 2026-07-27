@@ -78,6 +78,74 @@ class SmartSearchConfiguration
         return max(0, $ttl);
     }
 
+    /**
+     * Which embedding backend to use: 'llamacpp' (default), 'ollama' or 'openai'.
+     *
+     * An unrecognised value falls back to llama.cpp rather than throwing. Switching providers
+     * mid-life is already a re-embed — vectors from different models are not comparable — so a
+     * typo silently changing the model would be far worse than one that does nothing.
+     */
+    public function getEmbeddingProvider(): string
+    {
+        return $this->normaliseProvider($this->config['embeddingProvider'] ?? null);
+    }
+
+    /**
+     * Which generation backend to use: 'llamacpp' (default), 'ollama' or 'openai'. Chosen
+     * independently of the embedding provider.
+     */
+    public function getGenerationProvider(): string
+    {
+        return $this->normaliseProvider($this->config['generationProvider'] ?? null);
+    }
+
+    private function normaliseProvider(mixed $value): string
+    {
+        $provider = strtolower(trim((string) $value));
+
+        return in_array($provider, ['llamacpp', 'ollama', 'openai'], true) ? $provider : 'llamacpp';
+    }
+
+    public function getOpenAiApiKey(): string
+    {
+        return trim((string) ($this->config['openAiApiKey'] ?? ''));
+    }
+
+    public function getOpenAiEmbeddingModel(): string
+    {
+        return $this->nonEmpty($this->config['openAiEmbeddingModel'] ?? null, 'text-embedding-3-small');
+    }
+
+    public function getOpenAiGenerationModel(): string
+    {
+        return $this->nonEmpty($this->config['openAiGenerationModel'] ?? null, 'gpt-4o-mini');
+    }
+
+    public function getOllamaServerUrl(): string
+    {
+        return $this->nonEmpty($this->config['ollamaServerUrl'] ?? null, 'http://localhost:11434');
+    }
+
+    public function getOllamaEmbeddingModel(): string
+    {
+        return $this->nonEmpty($this->config['ollamaEmbeddingModel'] ?? null, 'nomic-embed-text');
+    }
+
+    public function getOllamaGenerationModel(): string
+    {
+        return $this->nonEmpty($this->config['ollamaGenerationModel'] ?? null, 'llama3.2');
+    }
+
+    /**
+     * The Install Tool writes '' for a cleared field, which ?? does not catch — the key exists.
+     */
+    private function nonEmpty(mixed $value, string $default): string
+    {
+        $trimmed = trim((string) $value);
+
+        return $trimmed !== '' ? $trimmed : $default;
+    }
+
     public function getSystemPrompt(): ?string
     {
         $prompt = trim((string) ($this->config['systemPrompt'] ?? ''));

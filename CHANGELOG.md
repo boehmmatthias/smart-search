@@ -13,6 +13,14 @@
   vectors whose source records are gone. Refuses to act on an empty live-identifier list unless
   `--allow-empty` is given, since that is indistinguishable from a provider that failed to load.
 - `VectorRepository::findAllIdentifiers()`, `deleteOrphans()` and `deleteByIdentifiers()`.
+- Query result caching for `findSimilar()` via the TYPO3 cache framework, configured with
+  `queryCacheTtl` (`0` disables it). Entries are tagged per collection and invalidated on every
+  write and delete path, so the TTL is a ceiling rather than a staleness window.
+
+### Changed
+
+- **Breaking:** `VectorService::__construct()` takes a `FrontendInterface $cache` as its fifth
+  argument. DI wiring handles this; only direct instantiation is affected.
 
 ## [0.2.0] - 2026-07-25
 

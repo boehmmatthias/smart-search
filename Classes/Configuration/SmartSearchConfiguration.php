@@ -68,6 +68,16 @@ class SmartSearchConfiguration
         return (float) ($this->config['semanticThreshold'] ?? 0.30);
     }
 
+    /**
+     * TTL in seconds for cached findSimilar() results. 0 disables query caching entirely.
+     */
+    public function getQueryCacheTtl(): int
+    {
+        $ttl = (int) ($this->config['queryCacheTtl'] ?? 3600);
+
+        return max(0, $ttl);
+    }
+
     public function getSystemPrompt(): ?string
     {
         $prompt = trim((string) ($this->config['systemPrompt'] ?? ''));

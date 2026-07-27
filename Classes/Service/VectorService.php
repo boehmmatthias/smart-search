@@ -10,14 +10,22 @@ use BoehmMatthias\SmartSearch\Embedding\EmbeddingClientInterface;
 use BoehmMatthias\SmartSearch\Repository\VectorRepository;
 use BoehmMatthias\SmartSearch\Reranking\RerankerInterface;
 use Psr\Log\LoggerInterface;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 
 class VectorService
 {
+    /**
+     * Set while embedAndStoreChunked() writes a whole document, so the per-chunk writes do not
+     * each flush the same collection tag.
+     */
+    private bool $suppressCacheFlush = false;
+
     public function __construct(
         private readonly EmbeddingClientInterface $embeddingClient,
         private readonly VectorRepository $vectorRepository,
         private readonly SmartSearchConfiguration $configuration,
         private readonly LoggerInterface $logger,
+        private readonly FrontendInterface $cache,
     ) {}
 
     /**
@@ -41,6 +49,7 @@ class VectorService
             // filters would keep using the stale values.
             if ($stored['metadata'] !== $metadata) {
                 $this->vectorRepository->updateMetadata($collection, $identifier, $metadata);
+                $this->flushQueryCache($collection);
                 $this->logger->debug('Updated metadata — content hash unchanged', [
                     'collection' => $collection,
                     'identifier' => $identifier,
@@ -56,6 +65,7 @@ class VectorService
 
         $vector = $this->embeddingClient->embed($text);
         $this->vectorRepository->upsert($collection, $identifier, $vector, $hash, $metadata);
+        $this->flushQueryCache($collection);
 
         $this->logger->debug('Stored embedding', [
             'collection' => $collection,
@@ -85,6 +95,9 @@ class VectorService
         $identifier = (string) $identifier;
         $chunks = $strategy->chunk($text);
 
+        // embedAndStore() flushes per call, so a 50-chunk document would issue 50 flushes of the
+        // same tag. Suppressed for the duration and flushed once at the end.
+        $this->suppressCacheFlush = true;
         $storedChunkIdentifiers = [];
         foreach ($chunks as $index => $chunk) {
             $chunkIdentifier = $identifier . self::CHUNK_SEPARATOR . $index;
@@ -119,6 +132,9 @@ class VectorService
                 ]);
             }
         }
+
+        $this->suppressCacheFlush = false;
+        $this->flushQueryCache($collection);
     }
 
     /**
@@ -137,6 +153,7 @@ class VectorService
     public function delete(string $collection, string|int $identifier): void
     {
         $this->vectorRepository->deleteByIdentifier($collection, (string) $identifier);
+        $this->flushQueryCache($collection);
     }
 
     /**
@@ -163,6 +180,10 @@ class VectorService
 
             $this->vectorRepository->deleteByIdentifier($collection, $candidate);
             $deleted++;
+        }
+
+        if ($deleted > 0) {
+            $this->flushQueryCache($collection);
         }
 
         return $deleted;
@@ -200,6 +221,19 @@ class VectorService
         array $metadataFilters = [],
         bool $collapseChunks = false,
     ): array {
+        $caching = $this->configuration->getQueryCacheTtl() > 0;
+        $cacheKey = $this->queryCacheKey($collection, $query, $topK, $metadataFilters, $collapseChunks);
+        $cached = $caching ? $this->cache->get($cacheKey) : false;
+
+        if (is_array($cached)) {
+            $this->logger->debug('Returning cached search results', [
+                'collection' => $collection,
+                'cache_key' => $cacheKey,
+            ]);
+            /** @var array<array{identifier: string, score: float}> $cached */
+            return $cached;
+        }
+
         $all = $this->vectorRepository->findByCollection($collection, $metadataFilters);
 
         if (empty($all)) {
@@ -232,7 +266,73 @@ class VectorService
 
         usort($scored, static fn(array $a, array $b) => $b['score'] <=> $a['score']);
 
-        return array_slice($scored, 0, $topK);
+        $results = array_slice($scored, 0, $topK);
+
+        if ($caching) {
+            $this->cache->set(
+                $cacheKey,
+                $results,
+                [$this->collectionCacheTag($collection)],
+                $this->configuration->getQueryCacheTtl(),
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Cache key for one search.
+     *
+     * Every argument that changes the result must be in here. Omitting $metadataFilters — which
+     * the original implementation did, because it predated them — means a search filtered to
+     * German returns the English result set from cache, silently. The filters are sorted so that
+     * two callers passing the same pairs in a different order share an entry rather than
+     * computing the same answer twice.
+     *
+     * @param array<string, scalar> $metadataFilters
+     */
+    private function queryCacheKey(
+        string $collection,
+        string $query,
+        int $topK,
+        array $metadataFilters,
+        bool $collapseChunks,
+    ): string {
+        ksort($metadataFilters);
+
+        return md5(json_encode([
+            $collection,
+            $query,
+            $topK,
+            $metadataFilters,
+            $collapseChunks,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Tag used to drop every cached search for one collection when its contents change.
+     *
+     * TYPO3 cache tags allow only [A-Za-z0-9_%\-&], so collection names are normalised. That
+     * makes the mapping lossy — two collections differing only in punctuation share a tag and
+     * therefore invalidate each other. Over-invalidation costs a recomputation; under-
+     * invalidation would serve stale results, so erring this way is deliberate.
+     */
+    private function collectionCacheTag(string $collection): string
+    {
+        return 'smartsearch_collection_' . (string) preg_replace('/[^a-zA-Z0-9_]/', '_', $collection);
+    }
+
+    /**
+     * Drops every cached search for a collection. Called from each write and delete path, so a
+     * cached result set cannot outlive the rows it names.
+     */
+    private function flushQueryCache(string $collection): void
+    {
+        if ($this->suppressCacheFlush) {
+            return;
+        }
+
+        $this->cache->flushByTag($this->collectionCacheTag($collection));
     }
 
     /**

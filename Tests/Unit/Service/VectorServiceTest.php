@@ -14,12 +14,14 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 
 final class VectorServiceTest extends TestCase
 {
     private EmbeddingClientInterface&MockObject $embeddingClient;
     private VectorRepository&MockObject $vectorRepository;
     private SmartSearchConfiguration&MockObject $configuration;
+    private FrontendInterface&MockObject $cache;
     private VectorService $service;
 
     protected function setUp(): void
@@ -28,12 +30,16 @@ final class VectorServiceTest extends TestCase
         $this->vectorRepository = $this->createMock(VectorRepository::class);
         $this->configuration = $this->createMock(SmartSearchConfiguration::class);
         $this->configuration->method('getEmbeddingContextLength')->willReturn(6000);
+        $this->configuration->method('getQueryCacheTtl')->willReturn(3600);
+        $this->cache = $this->createMock(FrontendInterface::class);
+        $this->cache->method('get')->willReturn(false);
 
         $this->service = new VectorService(
             $this->embeddingClient,
             $this->vectorRepository,
             $this->configuration,
             $this->createMock(LoggerInterface::class),
+            $this->cache,
         );
     }
 

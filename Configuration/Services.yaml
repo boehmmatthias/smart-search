@@ -40,3 +40,6 @@ services:
   BoehmMatthias\SmartSearch\Service\VectorService:
     arguments:
       $cache: '@cache.smart_search_queries'
+
+  BoehmMatthias\SmartSearch\Generation\StreamingGenerationClientInterface:
+    alias: BoehmMatthias\SmartSearch\Generation\LlamaCppStreamingGenerationClient

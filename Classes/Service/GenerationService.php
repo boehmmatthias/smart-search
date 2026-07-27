@@ -6,6 +6,7 @@ namespace BoehmMatthias\SmartSearch\Service;
 
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Generation\GenerationClientInterface;
+use BoehmMatthias\SmartSearch\Generation\StreamingGenerationClientInterface;
 use BoehmMatthias\SmartSearch\ValueObject\ConversationHistory;
 
 class GenerationService
@@ -17,6 +18,7 @@ class GenerationService
     public function __construct(
         private readonly GenerationClientInterface $generationClient,
         private readonly SmartSearchConfiguration $configuration,
+        private readonly StreamingGenerationClientInterface $streamingClient,
     ) {}
 
     /**
@@ -37,6 +39,28 @@ class GenerationService
     ): string {
         return $this->generationClient->complete(
             $this->buildMessages($query, $contextBlocks, $systemPrompt, $history),
+        );
+    }
+
+    /**
+     * Stream an answer, invoking $onChunk per text delta as it arrives.
+     *
+     * Takes the same arguments as generate() and resolves the system prompt identically, so
+     * switching between the two does not silently change the prompt the model receives.
+     *
+     * @param string[] $contextBlocks Each element is one formatted block of context text.
+     * @param callable(string): void $onChunk Called with each text delta as it arrives.
+     */
+    public function generateStream(
+        string $query,
+        array $contextBlocks,
+        callable $onChunk,
+        ?string $systemPrompt = null,
+        ?ConversationHistory $history = null,
+    ): void {
+        $this->streamingClient->stream(
+            $this->buildMessages($query, $contextBlocks, $systemPrompt, $history),
+            $onChunk,
         );
     }
 

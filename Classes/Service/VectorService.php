@@ -47,7 +47,7 @@ class VectorService
             // of the hash, and without this it would be write-once: correcting a
             // sys_language_uid or backfilling a new key would silently do nothing, and
             // filters would keep using the stale values.
-            if ($stored['metadata'] !== $metadata) {
+            if (!$this->metadataMatches($stored['metadata'], $metadata)) {
                 $this->vectorRepository->updateMetadata($collection, $identifier, $metadata);
                 $this->flushQueryCache($collection);
                 $this->logger->debug('Updated metadata — content hash unchanged', [
@@ -72,6 +72,25 @@ class VectorService
             'identifier' => $identifier,
             'dimensions' => count($vector),
         ]);
+    }
+
+    /**
+     * True if two metadata sets carry the same pairs, regardless of key order.
+     *
+     * A strict !== on arrays is order-sensitive, so a caller assembling the same pairs in a
+     * different order counted as drift: every call rewrote the row and flushed the whole
+     * collection's cached searches. Values are still compared strictly — a filter of '1' must
+     * not match a stored 1, which is what MetadataFilter relies on.
+     *
+     * @param array<string, scalar|null> $stored
+     * @param array<string, scalar> $given
+     */
+    private function metadataMatches(array $stored, array $given): bool
+    {
+        ksort($stored);
+        ksort($given);
+
+        return $stored === $given;
     }
 
     /**

@@ -342,6 +342,45 @@ final class VectorServiceTest extends TestCase
         $this->service->embedAndStore('col', 1, $text, ['sys_language_uid' => 1]);
     }
 
+    #[Test]
+    public function embedAndStoreIgnoresMetadataKeyOrderWhenDetectingChange(): void
+    {
+        // The comparison was a strict !== on arrays, which is key-order sensitive. A caller
+        // assembling the same pairs in a different order — a different code path building the
+        // array, or a changed field order in a mapping — therefore rewrote the metadata and
+        // flushed the whole collection's cached searches on every single call. queryCacheKey()
+        // already ksort()s for exactly this reason.
+        $text = 'Unchanged text';
+
+        $this->vectorRepository
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => md5($text), 'metadata' => ['sys_language_uid' => 1, 'site' => 'main']]);
+
+        $this->embeddingClient->expects(self::never())->method('embed');
+        $this->vectorRepository->expects(self::never())->method('upsert');
+        $this->vectorRepository->expects(self::never())->method('updateMetadata');
+
+        $this->service->embedAndStore('col', 1, $text, ['site' => 'main', 'sys_language_uid' => 1]);
+    }
+
+    #[Test]
+    public function embedAndStoreStillDetectsAGenuineMetadataChangeOfTheSameShape(): void
+    {
+        // The guard above must not blunt real drift: same keys, different value.
+        $text = 'Unchanged text';
+
+        $this->vectorRepository
+            ->method('findContentHashAndMetadata')
+            ->willReturn(['hash' => md5($text), 'metadata' => ['sys_language_uid' => 1, 'site' => 'main']]);
+
+        $this->vectorRepository
+            ->expects(self::once())
+            ->method('updateMetadata')
+            ->with('col', '1', ['site' => 'other', 'sys_language_uid' => 1]);
+
+        $this->service->embedAndStore('col', 1, $text, ['site' => 'other', 'sys_language_uid' => 1]);
+    }
+
     // --- chunk-aware read and delete ---
 
     #[Test]

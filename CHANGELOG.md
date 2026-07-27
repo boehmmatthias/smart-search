@@ -9,6 +9,10 @@
 - CLI commands `smartsearch:stats`, `smartsearch:clear` and `smartsearch:reindex`, plus
   `ReindexCommandInterface` for consuming extensions to contribute reindex handlers via the
   `smartsearch.reindex_handler` tag.
+- `smartsearch:cleanup` plus `OrphanProviderInterface` (tag `smartsearch.orphan_provider`) — deletes
+  vectors whose source records are gone. Refuses to act on an empty live-identifier list unless
+  `--allow-empty` is given, since that is indistinguishable from a provider that failed to load.
+- `VectorRepository::findAllIdentifiers()`, `deleteOrphans()` and `deleteByIdentifiers()`.
 
 ## [0.2.0] - 2026-07-25
 

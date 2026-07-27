@@ -32,3 +32,7 @@ services:
   BoehmMatthias\SmartSearch\Command\ReindexCommand:
     arguments:
       $handlers: !tagged_iterator smartsearch.reindex_handler
+
+  BoehmMatthias\SmartSearch\Command\CleanupCommand:
+    arguments:
+      $providers: !tagged_iterator smartsearch.orphan_provider

@@ -196,6 +196,33 @@ class VectorRepository
     }
 
     /**
+     * Aggregate stats per collection: how many vectors it holds and when it was last written.
+     *
+     * Aggregated in SQL rather than by counting rows in PHP — this is the one place that can
+     * afford to ask about every collection at once, precisely because it never loads a vector.
+     *
+     * @return array<array{collection: string, count: int, last_indexed: int}> Ordered by collection.
+     */
+    public function getCollectionStats(): array
+    {
+        $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
+        $rows = $queryBuilder
+            ->select('collection')
+            ->addSelectLiteral('COUNT(*) AS cnt', 'MAX(tstamp) AS last_indexed')
+            ->from(self::TABLE)
+            ->groupBy('collection')
+            ->orderBy('collection')
+            ->executeQuery()
+            ->fetchAllAssociative();
+
+        return array_map(static fn(array $row): array => [
+            'collection' => (string) $row['collection'],
+            'count' => (int) $row['cnt'],
+            'last_indexed' => (int) $row['last_indexed'],
+        ], $rows);
+    }
+
+    /**
      * Returns all identifiers in a collection whose identifier starts with $prefix.
      * Used to find and clean up stale chunks after a document is re-chunked.
      *

@@ -91,14 +91,47 @@ class VectorRepository
             return null;
         }
 
-        $raw = $row['metadata'] ?? null;
-
         return [
             'hash' => (string) $row['content_hash'],
-            'metadata' => $raw !== '' && $raw !== null
-                ? (array) json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR)
-                : [],
+            'metadata' => $this->decodeMetadata($row['metadata'] ?? null, $collection, $identifier),
         ];
+    }
+
+    /**
+     * Decodes a stored metadata column, treating an undecodable value as "no metadata".
+     *
+     * json_decode() with JSON_THROW_ON_ERROR raises \JsonException, which extends \Exception and
+     * not \RuntimeException — so it was covered by nothing, and one bad row turned every search
+     * on the collection into an uncaught exception and made that record impossible to re-index,
+     * because embedAndStore() reads this before it reaches the write.
+     *
+     * Degrading to an empty set rather than dropping the row keeps a perfectly good vector
+     * searchable while losing only its filter attributes, and an empty set matches no non-empty
+     * filter — so a row whose metadata cannot be read can never satisfy a language or tenant
+     * filter it should not have satisfied.
+     *
+     * @return array<string, scalar|null>
+     */
+    private function decodeMetadata(mixed $raw, string $collection, string $identifier): array
+    {
+        if ($raw === '' || $raw === null) {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            $this->logger->error('Undecodable metadata — treated as empty', [
+                'collection' => $collection,
+                'identifier' => $identifier,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        /** @var array<string, scalar|null> */
+        return is_array($decoded) ? $decoded : [];
     }
 
     /**
@@ -127,7 +160,9 @@ class VectorRepository
      * Metadata filtering is performed in PHP after the DB query (no JSON querying required).
      *
      * @param array<string, scalar> $metadataFilters Only entries whose metadata contains ALL given key-value pairs are returned.
-     * @return array<array{identifier: string, vector: float[], metadata: array<string, scalar>}>
+     * @return array<array{identifier: string, vector: float[], metadata: array<string, scalar|null>}>
+     *         Metadata is whatever was stored, so it may contain null even though upsert()
+     *         documents scalar values only — the same widening MetadataFilter::matches() makes.
      */
     public function findByCollection(string $collection, array $metadataFilters = []): array
     {
@@ -150,9 +185,7 @@ class VectorRepository
         while (($row = $result->fetchAssociative()) !== false) {
             $identifier = (string) $row['identifier'];
 
-            $meta = $row['metadata'] !== '' && $row['metadata'] !== null
-                ? (array) json_decode((string) $row['metadata'], true, 512, JSON_THROW_ON_ERROR)
-                : [];
+            $meta = $this->decodeMetadata($row['metadata'] ?? null, $collection, $identifier);
 
             // Filtering before unpacking is the point: metadata filters cannot reduce the rows
             // the database returns, but they can stop a rejected row ever becoming a float

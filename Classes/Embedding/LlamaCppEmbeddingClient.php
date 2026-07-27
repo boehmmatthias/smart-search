@@ -100,6 +100,13 @@ class LlamaCppEmbeddingClient implements EmbeddingClientInterface
             );
         }
 
-        return $data[0]['embedding'][0];
+        // Normalised the same way the Ollama and OpenAI clients do. json_decode() yields an int
+        // for an exact-integer JSON number, so returning the decoded value as-is could hand back
+        // an int[] from a method declared float[], and a non-list if the server ever emitted an
+        // object rather than an array.
+        return array_map(
+            static fn(mixed $component): float => (float) $component,
+            array_values($data[0]['embedding'][0]),
+        );
     }
 }

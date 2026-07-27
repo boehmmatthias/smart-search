@@ -53,6 +53,23 @@ final class LlamaCppEmbeddingClientTest extends TestCase
     }
 
     #[Test]
+    public function embedNormalisesComponentsToFloats(): void
+    {
+        // json_decode() produces an int for an exact-integer JSON number, so a server emitting
+        // 0 rather than 0.0 handed back an int[] from a method declared float[]. The Ollama and
+        // OpenAI clients both normalise; this one — the default provider — did not.
+        $payload = json_encode([[
+            'embedding' => [[0, 1, -1, 0.5]],
+        ]], JSON_THROW_ON_ERROR);
+
+        $this->requestFactory
+            ->method('request')
+            ->willReturn($this->makeResponse(200, $payload));
+
+        self::assertSame([0.0, 1.0, -1.0, 0.5], $this->client->embed('hello world'));
+    }
+
+    #[Test]
     public function embedThrowsOn400InsteadOfEmbeddingATruncatedDocument(): void
     {
         // Previously this halved the text and retried up to four times, returning a vector for

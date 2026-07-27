@@ -26,3 +26,9 @@ services:
   # the strategy they want to embedAndStoreChunked() explicitly.
   BoehmMatthias\SmartSearch\Reranking\RerankerInterface:
     alias: BoehmMatthias\SmartSearch\Reranking\LlmReranker
+
+  # Reindex handlers are contributed by consuming extensions, which know their own records;
+  # this extension cannot reindex anything on its own.
+  BoehmMatthias\SmartSearch\Command\ReindexCommand:
+    arguments:
+      $handlers: !tagged_iterator smartsearch.reindex_handler

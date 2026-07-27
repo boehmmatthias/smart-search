@@ -319,6 +319,49 @@ Results are cached for the duration of the current request (null-coalescing patt
 
 ---
 
+## CLI Commands
+
+```bash
+vendor/bin/typo3 smartsearch:stats                 # collections, vector counts, last indexed
+vendor/bin/typo3 smartsearch:clear <collection>    # delete every vector in a collection
+vendor/bin/typo3 smartsearch:reindex [collection]  # run registered reindex handlers
+```
+
+`smartsearch:clear` prompts before deleting and defaults to no; pass `-y` to skip the prompt in scripts. There is no undo — this extension does not know your source records, so restoring means re-running your own indexer against a live embedding server.
+
+`smartsearch:reindex` has nothing to reindex on its own, for the same reason. Contribute a handler:
+
+```php
+use BoehmMatthias\SmartSearch\Command\ReindexCommandInterface;
+
+final class ArticleReindexHandler implements ReindexCommandInterface
+{
+    public function getLabel(): string { return 'news articles'; }
+    public function getCollection(): string { return 'myext_articles'; }
+
+    public function reindex(): int
+    {
+        foreach ($this->articles->findAll() as $article) {
+            $this->vectorService->embedAndStore(
+                collection: 'myext_articles',
+                identifier: $article->getUid(),
+                text: $article->getSearchableText(),
+            );
+        }
+
+        return count($articles);
+    }
+}
+```
+
+```yaml
+MyVendor\MyExt\Search\ArticleReindexHandler:
+  tags:
+    - name: smartsearch.reindex_handler
+```
+
+---
+
 ## Implementing a Custom Backend
 
 The two interfaces make it straightforward to replace the llama.cpp clients with any other embedding or generation provider.

@@ -117,6 +117,7 @@ All settings are available under **Admin Tools → Settings → Extension Config
 | `ragTopK` | integer | `5` | Number of top-scoring documents retrieved and passed as context for RAG generation. |
 | `documentContextLength` | integer | `800` | Maximum characters of document content included per context block in RAG requests. |
 | `semanticThreshold` | float | `0.30` | Minimum cosine similarity score (0.0–1.0) to treat a result as a semantic match. |
+| `queryCacheTtl` | integer | `3600` | Seconds to cache `findSimilar()` results. `0` disables caching. Entries are invalidated per collection whenever a vector is written or deleted, so stale results are not served — the TTL is only a ceiling. |
 | `systemPrompt` | text | *(empty)* | Overrides the built-in RAG system prompt. Leave empty to use the default. A per-call `systemPrompt` argument to `generate()` takes precedence over this. |
 
 `ragTopK`, `documentContextLength` and `semanticThreshold` are **advisory**: `smart_search` does not apply them itself. They exist so a consuming extension and its integrator have one agreed place to configure retrieval policy — read them via `SmartSearchConfiguration` and apply them in your own code. Setting `semanticThreshold` will not change what `findSimilar()` returns.

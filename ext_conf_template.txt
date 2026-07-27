@@ -24,3 +24,6 @@ semanticThreshold = 0.30
 
 # cat=LLM/RAG; type=text; label=Custom system prompt for the generation service (leave empty to use the built-in default)
 systemPrompt =
+
+# cat=LLM/Performance; type=integer; label=TTL in seconds for cached search results (0 disables query caching)
+queryCacheTtl = 3600

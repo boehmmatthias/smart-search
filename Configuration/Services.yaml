@@ -36,3 +36,7 @@ services:
   BoehmMatthias\SmartSearch\Command\CleanupCommand:
     arguments:
       $providers: !tagged_iterator smartsearch.orphan_provider
+
+  BoehmMatthias\SmartSearch\Service\VectorService:
+    arguments:
+      $cache: '@cache.smart_search_queries'

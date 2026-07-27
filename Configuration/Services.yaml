@@ -43,3 +43,10 @@ services:
 
   BoehmMatthias\SmartSearch\Generation\StreamingGenerationClientInterface:
     alias: BoehmMatthias\SmartSearch\Generation\LlamaCppStreamingGenerationClient
+
+  # Default binding so the container can resolve HybridSearchService out of the box. An unbound
+  # interface fails container compilation, which takes down the whole site rather than just this
+  # extension. NullKeywordSearch finds nothing, so hybrid search degrades to pure semantic search
+  # until a consumer aliases this to their own implementation.
+  BoehmMatthias\SmartSearch\Search\KeywordSearchInterface:
+    alias: BoehmMatthias\SmartSearch\Search\NullKeywordSearch

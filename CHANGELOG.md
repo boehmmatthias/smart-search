@@ -13,6 +13,10 @@
   vectors whose source records are gone. Refuses to act on an empty live-identifier list unless
   `--allow-empty` is given, since that is indistinguishable from a provider that failed to load.
 - `VectorRepository::findAllIdentifiers()`, `deleteOrphans()` and `deleteByIdentifiers()`.
+- Hybrid search: `HybridSearchService` fuses semantic and keyword rankings with Reciprocal Rank
+  Fusion, plus `KeywordSearchInterface` for consumers to supply the keyword half. `NullKeywordSearch`
+  is bound by default so the container resolves without a consumer implementation; hybrid search then
+  degrades to pure semantic search.
 - Streaming generation: `StreamingGenerationClientInterface` with `LlamaCppStreamingGenerationClient`
   (Server-Sent Events), plus `GenerationService::generateStream()`. Resolves the system prompt and
   conversation history exactly as `generate()` does.

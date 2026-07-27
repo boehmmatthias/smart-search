@@ -17,7 +17,12 @@ class ParagraphChunker implements ChunkingStrategyInterface
 
     public function chunk(string $text): array
     {
-        $paragraphs = preg_split('/\n{2,}/', trim($text)) ?: [];
+        // Line endings are normalised before splitting. A CRLF blank line is "\r\n\r\n", whose
+        // two \n are not adjacent, so matching on /\n{2,}/ alone never split Windows-authored
+        // text — it returned the whole document as one chunk, which the caller then truncated at
+        // embeddingContextLength, silently dropping the tail from the index.
+        $text = str_replace(["\r\n", "\r"], "\n", trim($text));
+        $paragraphs = preg_split('/\n{2,}/', $text) ?: [];
         $paragraphs = array_values(array_filter(array_map('trim', $paragraphs)));
 
         if (empty($paragraphs)) {

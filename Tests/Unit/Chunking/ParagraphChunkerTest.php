@@ -50,6 +50,22 @@ final class ParagraphChunkerTest extends TestCase
     }
 
     #[Test]
+    public function splitsOnBlankLinesRegardlessOfLineEndingStyle(): void
+    {
+        // A CRLF blank line is "\r\n\r\n", whose two \n are not adjacent, so a /\n{2,}/ split
+        // never fired on it. CRLF reaches this routinely — textarea and RTE content submitted
+        // from a Windows browser, and imported documents. The failure was silent and lossy: the
+        // whole document became one chunk, which VectorService::normalise() then truncated at
+        // embeddingContextLength, dropping everything past it from the index without a warning.
+        $chunker = new ParagraphChunker(minChunkSize: 1, maxChunkSize: 10000);
+        $expected = ['First paragraph.', 'Second paragraph.', 'Third paragraph.'];
+
+        self::assertSame($expected, $chunker->chunk("First paragraph.\n\nSecond paragraph.\n\nThird paragraph."));
+        self::assertSame($expected, $chunker->chunk("First paragraph.\r\n\r\nSecond paragraph.\r\n\r\nThird paragraph."));
+        self::assertSame($expected, $chunker->chunk("First paragraph.\r\rSecond paragraph.\r\rThird paragraph."));
+    }
+
+    #[Test]
     public function mergesTooSmallTrailingFragmentIntoLastChunk(): void
     {
         // minChunkSize = 100; trailing fragment is only 3 chars → must be merged

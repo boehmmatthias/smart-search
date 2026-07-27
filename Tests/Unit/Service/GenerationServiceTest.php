@@ -6,6 +6,7 @@ namespace BoehmMatthias\SmartSearch\Tests\Unit\Service;
 
 use BoehmMatthias\SmartSearch\Configuration\SmartSearchConfiguration;
 use BoehmMatthias\SmartSearch\Generation\GenerationClientInterface;
+use BoehmMatthias\SmartSearch\Generation\StreamingGenerationClientInterface;
 use BoehmMatthias\SmartSearch\Service\GenerationService;
 use BoehmMatthias\SmartSearch\ValueObject\ConversationHistory;
 use PHPUnit\Framework\Attributes\Test;
@@ -15,15 +16,17 @@ use PHPUnit\Framework\TestCase;
 final class GenerationServiceTest extends TestCase
 {
     private GenerationClientInterface&MockObject $client;
+    private StreamingGenerationClientInterface&MockObject $streamingClient;
     private SmartSearchConfiguration&MockObject $configuration;
     private GenerationService $service;
 
     protected function setUp(): void
     {
         $this->client = $this->createMock(GenerationClientInterface::class);
+        $this->streamingClient = $this->createMock(StreamingGenerationClientInterface::class);
         $this->configuration = $this->createMock(SmartSearchConfiguration::class);
         $this->configuration->method('getSystemPrompt')->willReturn(null);
-        $this->service = new GenerationService($this->client, $this->configuration);
+        $this->service = new GenerationService($this->client, $this->configuration, $this->streamingClient);
     }
 
     #[Test]
@@ -101,7 +104,7 @@ final class GenerationServiceTest extends TestCase
     {
         $configuration = $this->createMock(SmartSearchConfiguration::class);
         $configuration->method('getSystemPrompt')->willReturn('Config-level prompt.');
-        $service = new GenerationService($this->client, $configuration);
+        $service = new GenerationService($this->client, $configuration, $this->streamingClient);
 
         $this->client
             ->expects(self::once())

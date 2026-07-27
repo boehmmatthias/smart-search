@@ -13,6 +13,9 @@
   vectors whose source records are gone. Refuses to act on an empty live-identifier list unless
   `--allow-empty` is given, since that is indistinguishable from a provider that failed to load.
 - `VectorRepository::findAllIdentifiers()`, `deleteOrphans()` and `deleteByIdentifiers()`.
+- Streaming generation: `StreamingGenerationClientInterface` with `LlamaCppStreamingGenerationClient`
+  (Server-Sent Events), plus `GenerationService::generateStream()`. Resolves the system prompt and
+  conversation history exactly as `generate()` does.
 - Multi-turn conversations: `ConversationHistory` plus a `history` argument on
   `GenerationService::generate()`, inserted between the system message and the current question so
   the model can resolve follow-ups.
@@ -23,7 +26,9 @@
 ### Changed
 
 - **Breaking:** `VectorService::__construct()` takes a `FrontendInterface $cache` as its fifth
-  argument. DI wiring handles this; only direct instantiation is affected.
+  argument, and `GenerationService::__construct()` a `StreamingGenerationClientInterface` as its
+  third. DI wiring handles both; only direct instantiation is affected.
+- "No streaming" is removed from Known Limitations.
 
 ## [0.2.0] - 2026-07-25
 

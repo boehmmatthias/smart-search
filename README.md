@@ -457,7 +457,6 @@ $vectorRepository->deleteByCollection('your-collection');
 
 ## Known Limitations
 
-- **No streaming** — generation responses are returned in full after the model finishes. The `stream: false` flag is hardcoded.
 - **Single-vector operations** — there is no batch embed API; callers must loop over records.
 - **PHP 8.4+ only** — the extension uses readonly constructor properties and other PHP 8.4 features.
 - **In-process similarity search** — cosine similarity is computed in PHP after fetching every vector in the collection. Peak memory is roughly 16 bytes per dimension per row, rounded up to the next power of two, so a 128 MB limit is reached at a few thousand rows at 1536 dimensions. Chunking multiplies the row count. For larger corpora, consider a dedicated vector database.
